@@ -1,0 +1,17 @@
+package com.dingxu.ai.hermes.run;
+
+public enum RunEventType {
+    RUN_STARTED,
+    MODEL_STARTED,
+    MODEL_FINISHED,
+    TOOL_STARTED,
+    TOOL_FINISHED,
+    APPROVAL_REQUIRED,
+    APPROVAL_RESOLVED,
+    INPUT_QUEUED,
+    INPUT_STEERED,
+    STOP_REQUESTED,
+    STOPPED,
+    COMPLETED,
+    FAILED
+}
