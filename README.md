@@ -118,58 +118,40 @@ CLI、HTTP Gateway、Cron 与 Local Service 都属于入口或装配层，统一
 
 ## 运行入口
 
-构建可执行 JAR：
+先配置 OpenAI-compatible 服务：
+
+```bash
+export OPENAI_BASE_URL=https://your-openai-compatible-endpoint
+export OPENAI_API_KEY=your-api-key
+export OPENAI_MODEL=your-tool-capable-model
+```
+
+运行完整测试：
+
+```bash
+mvn test
+```
+
+环境变量配置正确时，这条命令会运行全部确定性合同测试，以及三项真实模型测试：文本请求、结构化 Coding Plan、Harness 真实调用 `read_file` 和 `edit_file`。最终摘要应为 `Skipped: 0`；出现跳过说明真实模型配置没有进入测试进程，不能算完成本地验收。
+
+需要单独排查真实模型链路时，可以只运行三项集成测试：
+
+```bash
+mvn -Dtest=OpenAiCompatibleModelProviderIntegrationTest,CodingAgentWorkflowIntegrationTest,HermesRuntimeFactoryIntegrationTest test
+```
+
+`OPENAI_BASE_URL` 可以是官方 OpenAI 地址，也可以是兼容 `/v1/chat/completions` 的服务地址。模型必须支持 Tool Call，API Key 只通过进程环境传入，不要写进 `pom.xml`、测试资源或启动脚本。
+
+构建并运行可执行 JAR：
 
 ```bash
 mvn package
-```
-
-配置 OpenAI-compatible 服务后运行：
-
-```bash
-export OPENAI_BASE_URL=https://api.openai.com
-export OPENAI_API_KEY=你的 API Key
-export OPENAI_MODEL=gpt-4.1-mini
 java -jar target/java-hermes-agent-harness-0.1.0-SNAPSHOT.jar \
   --prompt "读取 README，并概括当前已实现模块" \
   --max-turns 8
 ```
 
 `JavaHermesApplication` 调用 `HermesRuntimeFactory` 完成进程内装配，CLI 使用 `assembly.runtime()`；工厂同时通过 `LocalServiceRegistry` 注册飞书 Handler。网络或 SDK adapter 只调用注册服务，不在回调中复制 Runtime。
-
-运行全部测试：
-
-```bash
-mvn test
-```
-
-默认测试不访问外网。`OpenAiCompatibleModelProviderTest` 使用 fake transport 固定协议行为，检查请求路径、认证头、请求体和响应解析。
-
-需要打真实 OpenAI-compatible 接口时，配置环境变量后运行集成测试：
-
-```bash
-export OPENAI_BASE_URL=https://api.openai.com
-export OPENAI_API_KEY=你的 API Key
-export OPENAI_MODEL=gpt-4.1-mini
-mvn test -Dtest=OpenAiCompatibleModelProviderIntegrationTest
-```
-
-`OPENAI_BASE_URL` 可以是官方 OpenAI 地址，也可以是任何兼容 `/v1/chat/completions` 的服务地址。没有这些环境变量时，集成测试会自动跳过。
-
-Coding Agent 也提供可选真实接口入口：
-
-```bash
-export OPENAI_BASE_URL=https://api.openai.com
-export OPENAI_API_KEY=你的 API Key
-export OPENAI_MODEL=gpt-4.1-mini
-mvn test -Dtest=CodingAgentWorkflowIntegrationTest
-```
-
-没有这些环境变量时，测试会自动跳过。离线工作流测试可以直接运行：
-
-```bash
-mvn test -Dtest=CodingAgentWorkflowTest
-```
 
 最小控制台不需要启动服务，直接打开文件即可：
 
@@ -185,10 +167,10 @@ node web-console/verify-console.mjs
 
 ## 验证约定
 
-- 默认测试全部离线运行，不依赖真实模型凭证。
-- 涉及网络的集成测试需要显式提供环境变量，没有凭证时自动跳过。
-- 文件修改、命令执行和真实模型工具闭环都在临时工作区中验证。
-- GitHub Actions 在 Linux、macOS 和 Windows 上运行同一套离线测试。
+- 第一次运行先配置 Base URL、API Key 和支持 Tool Call 的模型名。
+- `mvn test` 同时运行确定性合同测试和真实模型验收，不能只取其中一层作为完成证据。
+- 真实模型的文件修改和工具闭环在临时工作区中执行，不接触当前开发仓库。
+- GitHub Actions 在 Linux、macOS 和 Windows 上验证确定性合同；发布前还要在有凭证的环境中完成真实模型验收。
 
 ## 参考
 
