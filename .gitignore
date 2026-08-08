@@ -7,3 +7,4 @@ target/
 .env.*
 *.class
 *.log
+config/hermes.local.properties

@@ -1,11 +1,11 @@
 package com.ading.ai.hermes.cli;
 
+import com.ading.ai.hermes.config.LocalApplicationConfiguration;
 import com.ading.ai.hermes.model.ModelOptions;
 import com.ading.ai.hermes.model.OpenAiCompatibleModelProvider;
 import com.ading.ai.hermes.model.OpenAiCompatibleOptions;
 import com.ading.ai.hermes.runtime.HermesRuntimeFactory;
 import java.nio.file.Path;
-import java.util.Map;
 
 public final class JavaHermesApplication {
 
@@ -19,21 +19,25 @@ public final class JavaHermesApplication {
         }
         int exitCode;
         try {
-            var environment = System.getenv();
-            String baseUrl = required(environment, "OPENAI_BASE_URL");
-            String apiKey = required(environment, "OPENAI_API_KEY");
-            String model = required(environment, "OPENAI_MODEL");
-            Path workspace = Path.of("").toAbsolutePath().normalize();
+            Path launchDirectory = Path.of("").toAbsolutePath().normalize();
+            var configuration = LocalApplicationConfiguration.load(launchDirectory, System.getenv());
+            var input = SystemPromptInput.standard();
+            var modelConfig = CliStartupConfiguration.resolveModel(configuration, input);
+            String[] effectiveArgs = CliStartupConfiguration.addPromptWhenMissing(args, input);
+            Path workspace = workspace(launchDirectory, configuration.get("HERMES_WORKSPACE"));
 
-            var provider = new OpenAiCompatibleModelProvider(OpenAiCompatibleOptions.of(baseUrl, apiKey));
+            var provider = new OpenAiCompatibleModelProvider(OpenAiCompatibleOptions.of(
+                    modelConfig.baseUrl(),
+                    modelConfig.apiKey()
+            ));
             var assembly = HermesRuntimeFactory.create(
                     workspace,
                     provider,
-                    new ModelOptions(model, 0.0),
+                    new ModelOptions(modelConfig.model(), 0.0),
                     reply -> System.out.println(reply.text())
             );
-            exitCode = new JavaHermesCli(assembly.runtime(), System.out, System.err).run(args);
-        } catch (IllegalArgumentException error) {
+            exitCode = new JavaHermesCli(assembly.runtime(), System.out, System.err).run(effectiveArgs);
+        } catch (IllegalArgumentException | IllegalStateException error) {
             System.err.println(error.getMessage());
             exitCode = 2;
         }
@@ -42,11 +46,11 @@ public final class JavaHermesApplication {
         }
     }
 
-    private static String required(Map<String, String> environment, String name) {
-        String value = environment.get(name);
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " is required");
+    private static Path workspace(Path launchDirectory, String configured) {
+        if (configured == null || configured.isBlank()) {
+            return launchDirectory;
         }
-        return value;
+        Path path = Path.of(configured);
+        return path.isAbsolute() ? path.normalize() : launchDirectory.resolve(path).normalize();
     }
 }

@@ -64,7 +64,7 @@ CLI、HTTP Gateway、Cron 与 Local Service 都属于入口或装配层，统一
 - `com.ading.ai.hermes.learning.LearningGraph`：保存 Memory、Skill、显式 Skill 关系与可解释关联边，并返回不可变快照。
 - `com.ading.ai.hermes.core.AgentRuntime`：入口层、调度器和后续控制台共同依赖的运行时调用契约。
 - `com.ading.ai.hermes.cli.JavaHermesCli`：解析 prompt 与最大轮次，调用 `AgentRuntime`，用稳定退出码表达成功、运行失败与配置错误。
-- `com.ading.ai.hermes.cli.JavaHermesApplication`：从环境变量创建 Provider，注册工作区工具并组装可执行 CLI。
+- `com.ading.ai.hermes.cli.JavaHermesApplication`：加载本地配置或交互输入，注册工作区工具并组装可执行 CLI。
 - `com.ading.ai.hermes.gateway.HttpGatewayHandler`：校验最小 HTTP envelope，把入口请求转换成 `AgentRunRequest`，再把 Runtime 结果封装成 Gateway 响应。
 - `com.ading.ai.hermes.gateway.GatewayTurnRequest`：把 CLI、HTTP、消息平台等入口归一成 source、conversationId、userMessage 和 metadata。
 - `com.ading.ai.hermes.gateway.feishu.FeishuEventHandler`：处理 Challenge、文本校验、事件去重、会话映射、Runtime 调用与回复投递；失败事件允许重试。
@@ -124,22 +124,44 @@ CLI、HTTP Gateway、Cron 与 Local Service 都属于入口或装配层，统一
 
 ## 读者运行
 
-用 IDEA 打开当前项目，确认 Project SDK 支持 Java 21，然后选择 CLI 或 Web 入口。两种入口都会访问真实 OpenAI-compatible 模型，并调用同一套 `HermesRuntimeFactory`。
+用 IDEA 打开当前项目，把 Project SDK 设为 JDK 21 或更高版本，然后选择 CLI 或 Web 入口。两种入口都会访问真实 OpenAI-compatible 模型，并调用同一套 `HermesRuntimeFactory`。
+
+JDK 21 是项目基线，不支持 JDK 8。Runtime 使用了 `record`、标准 HTTP Client、不可变集合工厂和虚拟线程；这些能力直接服务状态建模、模型请求与并发工具执行。为兼容 JDK 8 替换这些语言和标准库能力，会让示例代码被兼容层淹没。
+
+### 本地配置
+
+最省事的方式是把 `config/hermes.local.properties.example` 另存为 `config/hermes.local.properties`，填写自己的模型配置：
+
+```properties
+openai.base-url=https://your-openai-compatible-endpoint
+openai.api-key=你的_API_Key
+openai.model=支持_Tool_Call_的模型名
+
+# 可选
+# hermes.workspace=.
+# hermes.web.port=8080
+```
+
+真实配置文件已加入 `.gitignore`。不要删除这条忽略规则，也不要提交包含 API Key 的文件。启动时环境变量覆盖本地配置；CLI 只询问仍然缺失的值，Web 页面则可以在启动后替换当前进程中的模型配置。因此团队项目可以保留同一份空模板，每位读者使用自己的本地配置。
+
+这里没有使用 `application.yml`：当前项目是纯 Java 应用，不会自动读取 Spring Boot 配置。用 JDK 自带的 `Properties` 可以保持启动链简单，也避免让读者误以为 Runtime 依赖 Spring。
 
 ### 入口一：CLI
 
-创建 `JavaHermesApplication` 的 Run Configuration：
+直接运行 `JavaHermesApplication.main()`。如果本地配置尚未填写，CLI 会依次询问 Base URL、API Key 和模型；没有 Program arguments 时，还会继续询问任务。配置只在当前进程内使用，不会自动写入文件。
+
+需要固定运行参数时，创建 `JavaHermesApplication` 的 Run Configuration：
 
 - Main class：`com.ading.ai.hermes.cli.JavaHermesApplication`
-- Working directory：选择允许 Agent 读写的工作区
-- Environment variables：填写 `OPENAI_BASE_URL`、`OPENAI_API_KEY`、`OPENAI_MODEL`
-- Program arguments：`--prompt "读取 README.md，概括这个项目解决的问题" --max-turns 8`
+- Working directory：保持为当前项目目录；需要操作其他练习目录时，在本地配置中设置 `hermes.workspace`
+- Environment variables：可选；可以用 `OPENAI_BASE_URL`、`OPENAI_API_KEY`、`OPENAI_MODEL` 覆盖本地配置
+- Program arguments：可选；例如 `--prompt "读取 README.md，概括这个项目解决的问题" --max-turns 8`
 
-运行 `JavaHermesApplication.main()` 后，终端会输出最终回答、结束原因和模型轮次。把任务改为读取或编辑工作区文件，可以继续观察 `read_file`、`list_files` 与 `edit_file` 的真实工具闭环。
+在系统终端运行时，API Key 输入会隐藏；IDEA Run Console 通常无法隐藏输入，因此在 IDEA 中更适合使用已忽略的本地配置。任务完成后，终端会输出最终回答、结束原因和模型轮次。把任务改为读取或编辑工作区文件，可以继续观察 `read_file`、`list_files` 与 `edit_file` 的真实工具闭环。
 
 ### 入口二：Web Console
 
-直接运行 `com.ading.ai.hermes.web.HermesWebApplication.main()`，然后访问：
+直接运行 `com.ading.ai.hermes.web.HermesWebApplication.main()`，不需要提前填写模型配置。然后访问启动日志打印的地址，默认是：
 
 ```text
 http://127.0.0.1:8080
@@ -149,7 +171,7 @@ http://127.0.0.1:8080
 
 项目提供 `examples/skills/reader-summary/SKILL.md`。把 Skills 目录设置为 `examples/skills`，提交包含“总结”或“概括”的读取任务，即可验证 Skill 按需进入模型上下文。“运行轨迹”会展示真实的最终回答、模型轮次、Tool Request 和 Observation；刷新页面后仍能取回当前 Java 进程内最近一次运行。
 
-Web 服务只监听 `127.0.0.1`。API Key 只保存在 Java 进程内存中，不会返回浏览器、不写入浏览器存储，也不落入项目文件。Memory 与运行时设置当前同样是进程内配置，服务重启后需要重新填写；自动持久化、Memory 写入审批和版本化 Skill 发布不在这个本地切片中。端口冲突时可在 Run Configuration 中设置 `HERMES_WEB_PORT`；需要预设工作区时可设置 `HERMES_WORKSPACE`。
+Web 服务只监听 `127.0.0.1`。API Key 只保存在 Java 进程内存中，不会返回浏览器、不写入浏览器存储，也不由页面写入项目文件。Memory 与页面运行时设置当前同样是进程内配置，服务重启后需要重新填写；模型配置如果已经写在本地配置中，重启时会重新加载。默认 `8080` 被占用时，应用会自动选择空闲端口并打印实际地址；如果显式设置了 `hermes.web.port` 或 `HERMES_WEB_PORT`，端口冲突时会提示修改该配置。
 
 `OPENAI_BASE_URL` 可以是官方 OpenAI 地址，也可以是兼容 `/v1/chat/completions` 的服务地址。模型必须支持 Tool Call。不要把 API Key 写进 `pom.xml`、源码、测试资源或启动脚本。
 

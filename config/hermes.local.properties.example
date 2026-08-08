@@ -1,0 +1,8 @@
+# 将此文件另存为 hermes.local.properties。真实配置已被 Git 忽略。
+openai.base-url=https://your-openai-compatible-endpoint
+openai.api-key=replace-with-your-api-key
+openai.model=replace-with-a-tool-call-capable-model
+
+# 以下配置可选；相对路径从项目运行目录开始解析。
+# hermes.workspace=.
+# hermes.web.port=8080
