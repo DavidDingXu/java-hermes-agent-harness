@@ -153,7 +153,7 @@ public final class ContextReferenceResolver {
                     .sorted(Comparator.comparing(Path::toString))
                     .limit(200)
                     .map(workspace::relativize)
-                    .map(Path::toString)
+                    .map(ContextReferenceResolver::portable)
                     .reduce((left, right) -> left + "\n" + right)
                     .orElse("");
         }
@@ -173,5 +173,9 @@ public final class ContextReferenceResolver {
 
     private static String trimTrailingPunctuation(String value) {
         return value.replaceFirst("[,.;!?]+$", "");
+    }
+
+    private static String portable(Path path) {
+        return path.toString().replace('\\', '/');
     }
 }
