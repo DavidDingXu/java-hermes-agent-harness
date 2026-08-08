@@ -46,14 +46,14 @@
 ## Phase 6: Subagent、Trajectory 与自进化边界
 
 - `agent-delegate`: 子 Agent 上下文隔离、预算边界和结果合并已实现；后台 subagent、真实并发、工具集过滤、嵌套 orchestrator 和 parent/child session 记录待实现。
-- `agent-observability`: 最小 Trajectory 记录、敏感字段脱敏、JSONL 落盘、模型 Token/耗时指标和静态 AgentOps Mini Console 展示已实现；API request id、streaming flush、查询 API 和控制台后端接口待实现。
+- `agent-observability`: 最小 Trajectory 记录、敏感字段脱敏、JSONL 落盘、模型 Token/耗时指标和真实运行轨迹展示已实现；API request id、streaming flush、历史查询和持久化待实现。
 - `agent-eval`: 基于正式 AgentRuntime、案例评估器和结构化证据的 Benchmark Runner 已实现；并发评测、持久化报告和统计显著性分析待实现。
 - `agent-skill`: Trajectory 自进化复盘、Memory/Skill 分流、Skill pending 审批边界和 review 工具白名单模型已实现；后台复盘线程、真实模型复盘、工具分发白名单接入和复盘通知待实现。
 
 ## Phase 7: 实战与收官
 
 - `examples/coding-agent`: 上下文收集、结构化模型计划、路径检查、原文匹配、验证命令白名单、Trajectory 记录和可选真实 OpenAI-compatible 模型入口已实现；完整 diff parser、接入 Terminal Backend 的真实验证执行、git diff 展示、人工审批界面和控制台后端接口待实现。
-- `web-console`: 静态 AgentOps Mini Console 已实现，用于观察 Gateway、Cron、Approval、Trajectory 和 Self Improvement 状态；真实 API、权限、分页和持久化查询待实现。
+- `web-console`: 本地 HTTP Server、模型配置、显式 Memory、按需 Skills、文件编辑权限、任务提交、最近一次运行恢复和真实事件轨迹已实现；配置持久化、异步 Runs API、SSE、认证、历史分页、持久化查询以及 Cron/Approval 管理界面待实现。
 - 全项目 Runtime 边界复盘已完成。
 
 ## Phase 8: 完整 Agent Harness

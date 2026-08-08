@@ -12,6 +12,7 @@ import com.ading.ai.hermes.harness.HarnessRunRequest;
 import com.ading.ai.hermes.harness.HarnessRunStatus;
 import com.ading.ai.hermes.run.BusyInputMode;
 import com.ading.ai.hermes.run.RunStatus;
+import com.ading.ai.hermes.skill.SkillManifest;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -87,6 +88,60 @@ class HermesRuntimeFactoryTest {
         ));
 
         assertTrue(modelPrompt.get().contains("URL references are disabled"));
+    }
+
+    @Test
+    void appliesConfiguredMemoryMatchingSkillsAndToolPermissions() {
+        AtomicReference<String> systemPrompt = new AtomicReference<>();
+        AtomicReference<List<String>> toolNames = new AtomicReference<>();
+        SkillManifest matching = new SkillManifest(
+                "reader-summary",
+                "",
+                "1.0.0",
+                true,
+                List.of("summarize"),
+                "Answer with exactly one sentence."
+        );
+        SkillManifest unrelated = new SkillManifest(
+                "java-testing",
+                "",
+                "1.0.0",
+                true,
+                List.of("test"),
+                "Run project verification."
+        );
+        HermesRuntimeOptions options = new HermesRuntimeOptions(
+                20_000,
+                50_000,
+                false,
+                "Reply in Chinese.",
+                "Project uses Java 21.",
+                "User prefers the conclusion first.",
+                List.of(matching, unrelated)
+        );
+        HermesRuntimeAssembly assembly = HermesRuntimeFactory.create(
+                workspace,
+                request -> {
+                    systemPrompt.set(request.messages().getFirst().content());
+                    toolNames.set(request.tools().stream().map(tool -> tool.name()).toList());
+                    return ChatResponse.of(ModelTurn.finalAnswer("done"));
+                },
+                new ModelOptions("test-model", 0.0),
+                reply -> { },
+                options
+        );
+
+        assembly.runtime().run(AgentRunRequest.from(
+                "web", "session", "summarize README",
+                IterationBudget.maxTurns(1), Map.of()
+        ));
+
+        assertTrue(systemPrompt.get().contains("Reply in Chinese."));
+        assertTrue(systemPrompt.get().contains("Project uses Java 21."));
+        assertTrue(systemPrompt.get().contains("User prefers the conclusion first."));
+        assertTrue(systemPrompt.get().contains("Answer with exactly one sentence."));
+        assertTrue(!systemPrompt.get().contains("Run project verification."));
+        assertEquals(List.of("read_file", "list_directory"), toolNames.get());
     }
 
     @Test

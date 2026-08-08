@@ -29,7 +29,8 @@ public final class SkillResolver {
                 return true;
             }
         }
+        String normalizedDescription = skill.description().toLowerCase(Locale.ROOT);
         return normalizedTask.contains(skill.name().toLowerCase(Locale.ROOT))
-                || normalizedTask.contains(skill.description().toLowerCase(Locale.ROOT));
+                || (!normalizedDescription.isBlank() && normalizedTask.contains(normalizedDescription));
     }
 }

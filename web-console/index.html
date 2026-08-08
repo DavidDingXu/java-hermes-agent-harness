@@ -3,915 +3,219 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AgentOps Mini Console</title>
-  <style>
-    :root {
-      --bg: #f3f6f7;
-      --panel: #ffffff;
-      --panel-soft: #f7fafb;
-      --text: #1f2a30;
-      --muted: #5f7078;
-      --line: #cfd9de;
-      --accent: #236b75;
-      --accent-soft: #e1f1f3;
-      --warn: #b95d4d;
-      --warn-soft: #fae8e4;
-      --ok: #39735f;
-      --ok-soft: #e7f3ee;
-      --pending: #9a6a25;
-      --pending-soft: #fbefd9;
-      --shadow: 0 18px 45px rgba(31, 42, 48, 0.08);
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    html,
-    body {
-      width: 100%;
-      max-width: 100%;
-    }
-
-    body {
-      margin: 0;
-      min-height: 100vh;
-      overflow-x: hidden;
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      line-height: 1.5;
-    }
-
-    button,
-    input,
-    textarea {
-      font: inherit;
-    }
-
-    .shell {
-      display: grid;
-      grid-template-columns: 264px minmax(0, 1fr);
-      min-height: 100vh;
-      min-width: 0;
-      width: 100%;
-      max-width: 100%;
-    }
-
-    .sidebar {
-      border-right: 1px solid var(--line);
-      background: #e8eef1;
-      padding: 28px 20px;
-      position: sticky;
-      top: 0;
-      height: 100vh;
-      min-width: 0;
-    }
-
-    .brand {
-      display: grid;
-      gap: 4px;
-      margin-bottom: 28px;
-    }
-
-    .brand h1 {
-      margin: 0;
-      font-size: 22px;
-      line-height: 1.2;
-      letter-spacing: 0;
-    }
-
-    .brand p {
-      margin: 0;
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    .nav {
-      display: grid;
-      gap: 8px;
-    }
-
-    .nav button {
-      width: 100%;
-      min-width: 0;
-      border: 1px solid transparent;
-      background: transparent;
-      color: var(--text);
-      display: grid;
-      grid-template-columns: 28px 1fr;
-      align-items: center;
-      gap: 10px;
-      min-height: 44px;
-      padding: 8px 10px;
-      text-align: left;
-      cursor: pointer;
-      border-radius: 8px;
-    }
-
-    .nav button:hover,
-    .nav button:focus-visible {
-      border-color: #c5d3d9;
-      background: rgba(255, 255, 255, 0.58);
-      outline: none;
-    }
-
-    .nav button.active {
-      background: var(--panel);
-      border-color: var(--line);
-      box-shadow: 0 8px 22px rgba(31, 42, 48, 0.06);
-    }
-
-    .nav svg {
-      width: 22px;
-      height: 22px;
-      stroke: currentColor;
-      stroke-width: 1.9;
-      fill: none;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-
-    .main {
-      padding: 30px;
-      display: grid;
-      gap: 22px;
-      align-content: start;
-      min-width: 0;
-    }
-
-    .topbar {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 20px;
-      align-items: start;
-    }
-
-    .topbar h2 {
-      margin: 0;
-      font-size: 30px;
-      line-height: 1.18;
-      letter-spacing: 0;
-    }
-
-    .topbar p {
-      margin: 8px 0 0;
-      max-width: 780px;
-      color: var(--muted);
-      font-size: 15px;
-    }
-
-    .status-strip {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
-
-    .chip {
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      padding: 7px 10px;
-      background: var(--panel);
-      color: var(--muted);
-      font-size: 12px;
-      white-space: nowrap;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
-      gap: 18px;
-    }
-
-    .panel {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      box-shadow: var(--shadow);
-      min-width: 0;
-    }
-
-    .panel-header {
-      padding: 18px 18px 12px;
-      border-bottom: 1px solid var(--line);
-      display: flex;
-      justify-content: space-between;
-      gap: 16px;
-      align-items: center;
-    }
-
-    .panel-header h3 {
-      margin: 0;
-      font-size: 18px;
-      line-height: 1.2;
-      letter-spacing: 0;
-    }
-
-    .panel-body {
-      padding: 18px;
-    }
-
-    .kv {
-      display: grid;
-      gap: 10px;
-    }
-
-    .kv-row {
-      display: grid;
-      grid-template-columns: 150px minmax(0, 1fr);
-      gap: 12px;
-      padding: 10px 0;
-      border-bottom: 1px solid #e5ecef;
-    }
-
-    .kv-row:last-child {
-      border-bottom: 0;
-    }
-
-    .key {
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    .value {
-      min-width: 0;
-      font-size: 14px;
-      overflow-wrap: anywhere;
-    }
-
-    .mono {
-      font-family: "SFMono-Regular", Consolas, monospace;
-      font-size: 13px;
-    }
-
-    .form {
-      display: grid;
-      gap: 12px;
-    }
-
-    label {
-      display: grid;
-      gap: 6px;
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    textarea,
-    input {
-      width: 100%;
-      min-width: 0;
-      max-width: 100%;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--panel-soft);
-      color: var(--text);
-      padding: 10px 12px;
-      min-height: 42px;
-    }
-
-    textarea {
-      min-height: 108px;
-      resize: vertical;
-    }
-
-    .actions {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .button {
-      border: 1px solid var(--accent);
-      background: var(--accent);
-      color: #fff;
-      min-height: 40px;
-      padding: 9px 13px;
-      border-radius: 8px;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .button.secondary {
-      background: var(--panel);
-      color: var(--accent);
-    }
-
-    .button.danger {
-      border-color: var(--warn);
-      background: var(--warn);
-    }
-
-    .button svg {
-      width: 18px;
-      height: 18px;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-
-    .event-list {
-      display: grid;
-      gap: 10px;
-    }
-
-    .event {
-      display: grid;
-      grid-template-columns: 120px minmax(0, 1fr);
-      gap: 12px;
-      border: 1px solid #dbe4e8;
-      border-radius: 8px;
-      padding: 12px;
-      background: var(--panel-soft);
-    }
-
-    .event strong {
-      font-size: 13px;
-      letter-spacing: 0;
-    }
-
-    .event p {
-      margin: 2px 0 0;
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 24px;
-      border-radius: 999px;
-      padding: 3px 8px;
-      font-size: 12px;
-      border: 1px solid var(--line);
-      background: var(--panel);
-      color: var(--muted);
-      width: fit-content;
-    }
-
-    .badge.ok {
-      background: var(--ok-soft);
-      color: var(--ok);
-      border-color: #b8d6ca;
-    }
-
-    .badge.warn {
-      background: var(--warn-soft);
-      color: var(--warn);
-      border-color: #e8b9ad;
-    }
-
-    .badge.pending {
-      background: var(--pending-soft);
-      color: var(--pending);
-      border-color: #e0bd82;
-    }
-
-    .cards {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-    }
-
-    .metric {
-      border: 1px solid #dbe4e8;
-      border-radius: 8px;
-      padding: 14px;
-      background: var(--panel-soft);
-    }
-
-    .metric span {
-      color: var(--muted);
-      font-size: 12px;
-    }
-
-    .metric strong {
-      display: block;
-      margin-top: 6px;
-      font-size: 24px;
-      line-height: 1.1;
-    }
-
-    .hidden {
-      display: none;
-    }
-
-    @media (max-width: 980px) {
-      .shell {
-        grid-template-columns: minmax(0, 1fr);
-      }
-
-      .sidebar {
-        position: static;
-        height: auto;
-        border-right: 0;
-        border-bottom: 1px solid var(--line);
-      }
-
-      .nav {
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-      }
-
-      .nav button {
-        grid-template-columns: 1fr;
-        justify-items: center;
-        text-align: center;
-        font-size: 12px;
-      }
-
-      .grid,
-      .topbar {
-        grid-template-columns: 1fr;
-      }
-
-      .status-strip {
-        justify-content: flex-start;
-      }
-    }
-
-    @media (max-width: 640px) {
-      .shell {
-        display: block;
-        width: 100vw;
-        max-width: 100vw;
-        overflow-x: hidden;
-      }
-
-      .main {
-        padding: 18px;
-      }
-
-      .sidebar,
-      .main {
-        width: 100%;
-        min-width: 0;
-        max-width: 100vw;
-        overflow-x: hidden;
-      }
-
-      .nav {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        width: 100%;
-        min-width: 0;
-      }
-
-      .nav button {
-        width: auto;
-        overflow-wrap: anywhere;
-      }
-
-      .main > *,
-      .topbar > *,
-      .view,
-      .grid,
-      .grid > *,
-      .form,
-      label,
-      .status-strip {
-        min-width: 0;
-        max-width: 100%;
-      }
-
-      .chip {
-        max-width: 100%;
-        white-space: normal;
-        overflow-wrap: anywhere;
-      }
-
-      .topbar p {
-        overflow-wrap: anywhere;
-      }
-
-      .cards {
-        grid-template-columns: 1fr;
-      }
-
-      .kv-row,
-      .event {
-        grid-template-columns: 1fr;
-      }
-    }
-  </style>
+  <meta name="color-scheme" content="light">
+  <title>Hermes Web Console</title>
+  <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <div class="shell">
+  <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
-        <h1>AgentOps Mini Console</h1>
-        <p>跟你一起成长的智能体。</p>
+        <strong>Hermes</strong>
+        <span>智能体运行控制台</span>
       </div>
-      <nav class="nav" aria-label="运行时视图">
-        <button class="active" type="button" data-view="gateway">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M4 12h10"/><path d="M4 17h16"/><path d="M18 10l3 2-3 2"/></svg>
-          网关任务
-        </button>
-        <button type="button" data-view="cron">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v5l3 2"/></svg>
-          定时任务
-        </button>
-        <button type="button" data-view="approval">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7l8-4z"/><path d="M9 12l2 2 4-5"/></svg>
-          人工审批
-        </button>
-        <button type="button" data-view="trajectory">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V5"/><path d="M5 12h5l2-4 3 8 2-4h2"/></svg>
-          运行轨迹
-        </button>
-        <button type="button" data-view="improvement">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18c5 0 11-4 14-12"/><path d="M13 6h6v6"/><path d="M5 18l5-5"/></svg>
-          自进化候选
-        </button>
+      <nav class="nav" aria-label="控制台导航">
+        <button type="button" class="nav-item active" data-view="config">模型配置</button>
+        <button type="button" class="nav-item" data-view="runtime">运行时配置</button>
+        <button type="button" class="nav-item" data-view="run">运行任务</button>
+        <button type="button" class="nav-item" data-view="trajectory">运行轨迹</button>
       </nav>
+      <div class="sidebar-status">
+        <span class="status-dot" id="sidebar-dot"></span>
+        <div>
+          <strong id="sidebar-status">读取配置中</strong>
+          <span>仅监听本机地址</span>
+        </div>
+      </div>
     </aside>
 
     <main class="main">
-      <section class="topbar">
+      <header class="topbar">
         <div>
-          <h2 id="view-title">网关任务</h2>
-          <p id="view-desc">提交任务后，只观察 Runtime envelope、sessionKey、finishReason 和事件列表。</p>
+          <h1 id="page-title">模型配置</h1>
+          <p id="page-description">配置目标模型和工作区，凭证仅保存在当前 Java 进程内。</p>
         </div>
-        <div class="status-strip" aria-label="运行摘要">
-          <span class="chip mono" id="conversation-id">conversationId: conv-code-001</span>
-          <span class="chip mono" id="session-key">sessionKey: user-local-project</span>
-          <span class="chip" id="finish-reason">finishReason: FINAL_ANSWER</span>
+        <div class="runtime-state">
+          <span id="model-state">模型：未配置</span>
+          <span id="workspace-state">工作区：未配置</span>
         </div>
-      </section>
+      </header>
 
-      <section class="view" id="gateway-view">
-        <div class="grid">
-          <article class="panel">
-            <div class="panel-header">
-              <h3>任务请求</h3>
-              <span class="badge ok">就绪</span>
+      <section class="view" id="config-view">
+        <div class="two-column">
+          <form class="panel form" id="config-form">
+            <div class="panel-heading">
+              <div>
+                <h2>连接设置</h2>
+                <p>兼容 OpenAI Chat Completions 的服务均可接入。</p>
+              </div>
+              <span class="state-label" id="config-state">未配置</span>
             </div>
-            <div class="panel-body">
-              <form class="form" id="task-form">
-                <label>
-                  用户任务
-                  <textarea id="task-input">修复 Calculator.add 的加法错误，并只运行 CalculatorTest。</textarea>
-                </label>
-                <label>
-                  上下文路径
-                  <input id="context-input" value="src/main/java/example/Calculator.java">
-                </label>
-                <div class="actions">
-                  <button class="button" type="submit">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
-                    提交
-                  </button>
-                  <button class="button secondary" type="button" id="reset-run">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4v6h6"/><path d="M20 20v-6h-6"/><path d="M20 9A8 8 0 0 0 6 5"/><path d="M4 15a8 8 0 0 0 14 4"/></svg>
-                    重置
-                  </button>
-                </div>
-              </form>
+            <label>
+              Base URL
+              <input id="base-url" name="baseUrl" type="url" autocomplete="url"
+                     placeholder="https://your-provider.example" required>
+            </label>
+            <label>
+              模型
+              <input id="model" name="model" autocomplete="off"
+                     placeholder="gpt-5.6-luna" required>
+            </label>
+            <label>
+              API Key
+              <input id="api-key" name="apiKey" type="password" autocomplete="off"
+                     placeholder="输入后仅保存在当前进程内">
+              <small id="api-key-hint">首次配置必须填写，保存后不会再次显示。</small>
+            </label>
+            <label>
+              工作区
+              <input id="workspace" name="workspace" autocomplete="off" required>
+              <small>Hermes 的文件工具只能访问这个目录。</small>
+            </label>
+            <div class="form-actions">
+              <button class="primary-button" type="submit" id="save-config">保存配置</button>
+              <span class="form-message" id="config-message" role="status"></span>
             </div>
-          </article>
-          <article class="panel">
-            <div class="panel-header">
-              <h3>运行结果</h3>
-              <span class="badge ok" id="gateway-state">已接收</span>
-            </div>
-            <div class="panel-body">
-              <div class="kv" id="gateway-kv"></div>
-            </div>
-          </article>
-        </div>
-      </section>
+          </form>
 
-      <section class="view hidden" id="cron-view">
-        <div class="grid">
-          <article class="panel">
-            <div class="panel-header">
-              <h3>定时任务</h3>
-              <span class="badge pending">已排期</span>
-            </div>
-            <div class="panel-body">
-              <div class="kv" id="cron-kv"></div>
-              <div class="actions" style="margin-top:16px">
-                <button class="button" type="button" id="run-cron">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
-                  立即运行
-                </button>
+          <aside class="panel security-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>本地安全边界</h2>
+                <p>Web Console 只绑定 127.0.0.1。</p>
               </div>
             </div>
-          </article>
-          <article class="panel">
-            <div class="panel-header">
-              <h3>投递结果</h3>
-              <span class="badge ok" id="delivery-state">已投递</span>
-            </div>
-            <div class="panel-body">
-              <div class="event-list" id="cron-events"></div>
-            </div>
-          </article>
+            <dl class="fact-list">
+              <div><dt>API Key</dt><dd>只进入 Java 进程内存，不回传给页面</dd></div>
+              <div><dt>文件访问</dt><dd>限制在所选工作区，拒绝越界路径</dd></div>
+              <div><dt>模型调用</dt><dd>由真实 Provider 驱动，不使用页面模拟结果</dd></div>
+              <div><dt>页面数据</dt><dd>不写入 Local Storage 或 Cookie</dd></div>
+            </dl>
+          </aside>
         </div>
       </section>
 
-      <section class="view hidden" id="approval-view">
-        <div class="grid">
-          <article class="panel">
-            <div class="panel-header">
-              <h3>待审批项</h3>
-              <span class="badge pending" id="approval-state">待审批</span>
+      <section class="view hidden" id="runtime-view">
+        <div class="two-column runtime-config-layout">
+          <form class="panel form" id="runtime-form">
+            <div class="panel-heading">
+              <div>
+                <h2>Agent 上下文</h2>
+                <p>保存后会重新装配 Runtime，并清空上一条运行轨迹。</p>
+              </div>
+              <span class="state-label" id="runtime-config-state">默认配置</span>
             </div>
-            <div class="panel-body">
-              <div class="kv" id="approval-kv"></div>
-              <div class="actions" style="margin-top:16px">
-                <button class="button" type="button" data-action="approve">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
-                  批准
-                </button>
-                <button class="button danger" type="button" data-action="deny">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
-                  拒绝
-                </button>
+            <label>
+              附加系统规则
+              <textarea class="compact-textarea" id="system-prompt-appendix" rows="4"
+                        placeholder="例如：回答使用中文，先给结论再解释。"></textarea>
+              <small>追加到 Hermes 默认系统规则之后。</small>
+            </label>
+            <label>
+              项目记忆
+              <textarea class="compact-textarea" id="project-memory" rows="4"
+                        placeholder="记录稳定的项目事实、约束和技术约定。"></textarea>
+              <small>随当前工作区任务进入模型上下文。</small>
+            </label>
+            <label>
+              用户记忆
+              <textarea class="compact-textarea" id="user-memory" rows="4"
+                        placeholder="记录稳定的表达偏好与协作习惯。"></textarea>
+              <small>不要填写 API Key、Token 或密码。</small>
+            </label>
+            <label>
+              Skills 目录
+              <input id="skills-directory" autocomplete="off">
+              <small>目录必须位于工作区内，每个直接子目录包含一份 SKILL.md。</small>
+            </label>
+            <div class="toggle-group">
+              <label class="toggle-row">
+                <input id="skills-enabled" type="checkbox" checked>
+                <span><strong>启用 Skills</strong><small>按任务触发词加载已启用且可信的本地 Skill。</small></span>
+              </label>
+              <label class="toggle-row">
+                <input id="file-editing-enabled" type="checkbox" checked>
+                <span><strong>允许文件编辑</strong><small>关闭后 Runtime 不注册 edit_file，只保留读取工具。</small></span>
+              </label>
+            </div>
+            <div class="form-actions">
+              <button class="primary-button" type="submit" id="save-runtime-config">保存运行时配置</button>
+              <span class="form-message" id="runtime-message" role="status"></span>
+            </div>
+          </form>
+
+          <aside class="panel skills-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>已加载 Skills</h2>
+                <p>这里只展示通过目录解析的真实 Skill Manifest。</p>
               </div>
             </div>
-          </article>
-          <article class="panel">
-            <div class="panel-header">
-              <h3>边界说明</h3>
-              <span class="badge warn">人工门禁</span>
+            <div class="skill-list empty" id="skill-list">当前目录没有可加载的 Skill。</div>
+            <dl class="fact-list runtime-facts">
+              <div><dt>Memory</dt><dd>作为显式上下文进入每次模型请求</dd></div>
+              <div><dt>Skills</dt><dd>按任务匹配，不把全部技能塞入上下文</dd></div>
+              <div><dt>工具权限</dt><dd>在 Tool Registry 装配阶段生效</dd></div>
+            </dl>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view hidden" id="run-view">
+        <div class="run-layout">
+          <form class="panel form task-form" id="task-form">
+            <div class="panel-heading">
+              <div>
+                <h2>提交任务</h2>
+                <p>任务会进入真实 Main Loop，并在配置的工作区中调用工具。</p>
+              </div>
             </div>
-            <div class="panel-body">
-              <div class="event-list" id="approval-events"></div>
+            <label>
+              任务描述
+              <textarea id="prompt" name="prompt" rows="8" required>读取 README.md，概括当前 Agent Harness 已实现的核心模块。只读取文件，不要修改。</textarea>
+            </label>
+            <label class="turn-field">
+              最大模型轮次
+              <input id="max-turns" name="maxTurns" type="number" min="1" max="30" value="8">
+            </label>
+            <div class="form-actions">
+              <button class="primary-button" type="submit" id="run-task">运行 Hermes</button>
+              <span class="form-message" id="run-message" role="status"></span>
             </div>
-          </article>
+          </form>
+
+          <section class="panel result-panel" aria-live="polite">
+            <div class="panel-heading">
+              <div>
+                <h2>运行结果</h2>
+                <p id="result-meta">尚未运行任务</p>
+              </div>
+              <span class="state-label" id="run-state">等待运行</span>
+            </div>
+            <div class="result-content empty" id="result-content">配置模型后运行第一个任务。</div>
+          </section>
         </div>
       </section>
 
       <section class="view hidden" id="trajectory-view">
-        <article class="panel">
-          <div class="panel-header">
-            <h3>运行轨迹</h3>
-            <span class="badge ok">已脱敏</span>
-          </div>
-          <div class="panel-body">
-            <div class="cards" id="trajectory-metrics"></div>
-            <div class="event-list" id="trajectory-events" style="margin-top:16px"></div>
-          </div>
-        </article>
-      </section>
-
-      <section class="view hidden" id="improvement-view">
-        <div class="grid">
-          <article class="panel">
-            <div class="panel-header">
-              <h3>Memory 候选</h3>
-              <span class="badge ok">策略通过</span>
-            </div>
-            <div class="panel-body">
-              <div class="kv" id="memory-kv"></div>
-            </div>
-          </article>
-          <article class="panel">
-            <div class="panel-header">
-              <h3>Skill 候选</h3>
-              <span class="badge pending" id="skill-state">待审批</span>
-            </div>
-            <div class="panel-body">
-              <div class="kv" id="skill-kv"></div>
-              <div class="actions" style="margin-top:16px">
-                <button class="button" type="button" id="approve-skill">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
-                  批准 Skill
-                </button>
-              </div>
-            </div>
-          </article>
+        <div class="metrics" id="trajectory-metrics">
+          <div><span>模型轮次</span><strong>0</strong></div>
+          <div><span>工具请求</span><strong>0</strong></div>
+          <div><span>工具结果</span><strong>0</strong></div>
+          <div><span>结束原因</span><strong>--</strong></div>
         </div>
+        <section class="panel trajectory-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>事件序列</h2>
+              <p>按发生顺序展示模型决策、工具请求和 Observation。</p>
+            </div>
+          </div>
+          <div class="event-list empty" id="event-list">完成一次任务后，这里会出现真实运行轨迹。</div>
+        </section>
       </section>
     </main>
   </div>
-
-  <script>
-    const runtimeSnapshot = {
-      activeView: "gateway",
-      gateway: {
-        source: "web-console",
-        conversationId: "conv-code-001",
-        sessionKey: "user-local-project",
-        finishReason: "FINAL_ANSWER",
-        userMessage: "修复 Calculator.add 的加法错误，并只运行 CalculatorTest。",
-        contextPath: "src/main/java/example/Calculator.java",
-        finalAnswer: "Calculator.add 已改为 a + b，CalculatorTest 通过。",
-      },
-      cron: {
-        jobId: "cron-weekly-code-review",
-        schedule: "0 9 * * MON",
-        nextRunAt: "2026-06-22T09:00:00+08:00",
-        deliveryTarget: "web-console",
-        lastRun: "run-cron-003",
-        status: "delivered",
-      },
-      approval: {
-        id: "approval-skill-017",
-        type: "Skill 候选",
-        sourceTrajectory: "conv-code-001/turn-1",
-        reason: "候选技能会影响后续代码任务，需要人工确认后才能加载。",
-        status: "pending",
-      },
-      trajectory: [
-        ["USER_MESSAGE", "修复加法错误", "收到用户任务和上下文路径"],
-        ["MODEL_RESPONSE", "编码计划", "模型返回摘要、补丁和验证命令"],
-        ["TOOL_REQUESTED", "应用补丁", "path=Calculator.java"],
-        ["TOOL_OBSERVED", "补丁已应用", "expected 文本命中，替换完成"],
-        ["TOOL_REQUESTED", "运行验证", "mvn -Dtest=CalculatorTest test"],
-        ["TOOL_OBSERVED", "CalculatorTest 已通过", "验证通过"],
-        ["RUN_FINISHED", "FINAL_ANSWER", "运行结果已收口"],
-      ],
-      improvement: {
-        memory: {
-          target: "USER",
-          content: "代码任务优先给出结论，再列验证命令和边界。",
-          source: "conv-code-001/turn-1",
-        },
-        skill: {
-          name: "java-narrow-test-before-full-run",
-          status: "pending",
-          source: "conv-code-001/turn-1",
-          rule: "Java 代码修复先运行目标测试，确认通过后再扩大验证范围。",
-        },
-      },
-    };
-
-    const views = {
-      gateway: {
-        title: "网关任务",
-        desc: "提交任务后，只观察 Runtime envelope、sessionKey、finishReason 和事件列表。",
-      },
-      cron: {
-        title: "定时任务",
-        desc: "定时任务也调用同一个 Runtime，控制台只展示 fire key、投递结果和最近运行。",
-      },
-      approval: {
-        title: "人工审批",
-        desc: "危险动作和 Skill Candidate 都停在人工确认边界，批准前不进入长期行为。",
-      },
-      trajectory: {
-        title: "运行轨迹",
-        desc: "轨迹不是原始日志，它保留模型轮次、工具请求、观察结果和结束状态。",
-      },
-      improvement: {
-        title: "自进化候选",
-        desc: "自进化只读取轨迹证据，Memory 和 Skill Candidate 分流处理。",
-      },
-    };
-
-    const qs = (selector) => document.querySelector(selector);
-    const qsa = (selector) => [...document.querySelectorAll(selector)];
-    const statusText = (status) => ({
-      pending: "待审批",
-      approved: "已批准",
-      denied: "已拒绝",
-      delivered: "已投递",
-    }[status] || status);
-
-    function kvRows(entries) {
-      return entries.map(([key, value]) => `
-        <div class="kv-row">
-          <div class="key">${key}</div>
-          <div class="value mono">${value}</div>
-        </div>
-      `).join("");
-    }
-
-    function eventRows(events) {
-      return events.map(([kind, title, detail]) => `
-        <div class="event">
-          <span class="badge ${kind.includes("FINISHED") || title.includes("passed") || title.includes("delivered") ? "ok" : kind.includes("DENIED") ? "warn" : ""}">${kind}</span>
-          <div>
-            <strong>${title}</strong>
-            <p>${detail}</p>
-          </div>
-        </div>
-      `).join("");
-    }
-
-    function render() {
-      const current = views[runtimeSnapshot.activeView];
-      qs("#view-title").textContent = current.title;
-      qs("#view-desc").textContent = current.desc;
-      qs("#conversation-id").textContent = `conversationId: ${runtimeSnapshot.gateway.conversationId}`;
-      qs("#session-key").textContent = `sessionKey: ${runtimeSnapshot.gateway.sessionKey}`;
-      qs("#finish-reason").textContent = `finishReason: ${runtimeSnapshot.gateway.finishReason}`;
-
-      qsa(".view").forEach((view) => view.classList.add("hidden"));
-      qs(`#${runtimeSnapshot.activeView}-view`).classList.remove("hidden");
-      qsa("[data-view]").forEach((button) => {
-        button.classList.toggle("active", button.dataset.view === runtimeSnapshot.activeView);
-      });
-
-      qs("#gateway-kv").innerHTML = kvRows([
-        ["source", runtimeSnapshot.gateway.source],
-        ["conversationId", runtimeSnapshot.gateway.conversationId],
-        ["sessionKey", runtimeSnapshot.gateway.sessionKey],
-        ["finishReason", runtimeSnapshot.gateway.finishReason],
-        ["contextPath", runtimeSnapshot.gateway.contextPath],
-        ["finalAnswer", runtimeSnapshot.gateway.finalAnswer],
-      ]);
-
-      qs("#cron-kv").innerHTML = kvRows([
-        ["jobId", runtimeSnapshot.cron.jobId],
-        ["schedule", runtimeSnapshot.cron.schedule],
-        ["nextRunAt", runtimeSnapshot.cron.nextRunAt],
-        ["deliveryTarget", runtimeSnapshot.cron.deliveryTarget],
-        ["lastRun", runtimeSnapshot.cron.lastRun],
-      ]);
-      qs("#cron-events").innerHTML = eventRows([
-        ["CLAIMED", runtimeSnapshot.cron.lastRun, "fire key 已领取，避免重复触发"],
-        ["DELIVERED", runtimeSnapshot.cron.status, "运行结果已投递到 web-console"],
-      ]);
-
-      qs("#approval-state").textContent = statusText(runtimeSnapshot.approval.status);
-      qs("#approval-state").className = `badge ${runtimeSnapshot.approval.status === "pending" ? "pending" : runtimeSnapshot.approval.status === "approved" ? "ok" : "warn"}`;
-      qs("#approval-kv").innerHTML = kvRows([
-        ["id", runtimeSnapshot.approval.id],
-        ["type", runtimeSnapshot.approval.type],
-        ["sourceTrajectory", runtimeSnapshot.approval.sourceTrajectory],
-        ["status", runtimeSnapshot.approval.status],
-        ["reason", runtimeSnapshot.approval.reason],
-      ]);
-      qs("#approval-events").innerHTML = eventRows([
-        ["PENDING", "人工门禁", "候选项不会直接写入可加载 Skill"],
-        [runtimeSnapshot.approval.status.toUpperCase(), statusText(runtimeSnapshot.approval.status), "审批状态会进入后续运行时记录"],
-      ]);
-
-      qs("#trajectory-metrics").innerHTML = [
-        ["事件数", runtimeSnapshot.trajectory.length],
-        ["工具请求", runtimeSnapshot.trajectory.filter(([kind]) => kind === "TOOL_REQUESTED").length],
-        ["观察结果", runtimeSnapshot.trajectory.filter(([kind]) => kind === "TOOL_OBSERVED").length],
-        ["完成原因", runtimeSnapshot.gateway.finishReason],
-      ].map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${value}</strong></div>`).join("");
-      qs("#trajectory-events").innerHTML = eventRows(runtimeSnapshot.trajectory);
-
-      qs("#memory-kv").innerHTML = kvRows([
-        ["target", runtimeSnapshot.improvement.memory.target],
-        ["content", runtimeSnapshot.improvement.memory.content],
-        ["source", runtimeSnapshot.improvement.memory.source],
-      ]);
-      qs("#skill-state").textContent = statusText(runtimeSnapshot.improvement.skill.status);
-      qs("#skill-state").className = `badge ${runtimeSnapshot.improvement.skill.status === "pending" ? "pending" : "ok"}`;
-      qs("#skill-kv").innerHTML = kvRows([
-        ["name", runtimeSnapshot.improvement.skill.name],
-        ["status", runtimeSnapshot.improvement.skill.status],
-        ["source", runtimeSnapshot.improvement.skill.source],
-        ["rule", runtimeSnapshot.improvement.skill.rule],
-      ]);
-    }
-
-    qsa("[data-view]").forEach((button) => {
-      button.addEventListener("click", () => {
-        runtimeSnapshot.activeView = button.dataset.view;
-        render();
-      });
-    });
-
-    qs("#task-form").addEventListener("submit", (event) => {
-      event.preventDefault();
-      runtimeSnapshot.gateway.userMessage = qs("#task-input").value.trim();
-      runtimeSnapshot.gateway.contextPath = qs("#context-input").value.trim();
-      runtimeSnapshot.gateway.conversationId = `conv-code-${Math.floor(Math.random() * 900 + 100)}`;
-      runtimeSnapshot.gateway.finishReason = "FINAL_ANSWER";
-      runtimeSnapshot.gateway.finalAnswer = "任务已进入 Runtime，轨迹和验证结果已更新。";
-      runtimeSnapshot.trajectory.unshift(["USER_MESSAGE", "新任务", runtimeSnapshot.gateway.userMessage]);
-      render();
-    });
-
-    qs("#reset-run").addEventListener("click", () => {
-      runtimeSnapshot.gateway.conversationId = "conv-code-001";
-      runtimeSnapshot.gateway.finishReason = "FINAL_ANSWER";
-      runtimeSnapshot.gateway.finalAnswer = "Calculator.add 已改为 a + b，CalculatorTest 通过。";
-      render();
-    });
-
-    qs("#run-cron").addEventListener("click", () => {
-      runtimeSnapshot.cron.lastRun = `run-cron-${Math.floor(Math.random() * 900 + 100)}`;
-      runtimeSnapshot.cron.status = "delivered";
-      qs("#delivery-state").textContent = "已投递";
-      render();
-    });
-
-    qsa("[data-action]").forEach((button) => {
-      button.addEventListener("click", () => {
-        runtimeSnapshot.approval.status = button.dataset.action === "approve" ? "approved" : "denied";
-        render();
-      });
-    });
-
-    qs("#approve-skill").addEventListener("click", () => {
-      runtimeSnapshot.improvement.skill.status = "approved";
-      runtimeSnapshot.approval.status = "approved";
-      render();
-    });
-
-    render();
-  </script>
+  <script src="/app.js" defer></script>
 </body>
 </html>

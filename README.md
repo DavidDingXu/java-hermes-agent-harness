@@ -22,15 +22,15 @@ The agent that grows with you. 跟你一起成长的智能体。
 - Hooks、Plugins 与 AgentHarness 总装配
 - Observability、Trajectory 与 Benchmark
 - Coding Agent 最小实战切片
-- AgentOps Mini Console
+- 可配置 Web Console 与真实运行轨迹
 
 ## 当前边界
 
-当前实现覆盖 Runtime 主循环、原生 Reasoning 解析、Provider Runtime 配置解析、工具注册与校验、批量 Tool Call、唯一匹配文本编辑、完成验证门禁、Context Engine、Context References、JSONL 与 SQLite Session、中文 Session Search、Memory、Skills、Learning Graph、HTTP Gateway、可执行 CLI、飞书事件处理核心、Cron、Subagent、Trajectory、模型调用 Metrics、Benchmark、Toolsets/MCP、程序化工具调用、Workspace Checkpoint、Terminal Backend、Run 生命周期、Hooks/Plugins、AgentHarness 总装配、Coding Agent 和静态 AgentOps Console。
+当前实现覆盖 Runtime 主循环、原生 Reasoning 解析、Provider Runtime 配置解析、工具注册与校验、批量 Tool Call、唯一匹配文本编辑、完成验证门禁、Context Engine、Context References、JSONL 与 SQLite Session、中文 Session Search、Memory、Skills、Learning Graph、HTTP Gateway、可执行 CLI、飞书事件处理核心、Cron、Subagent、Trajectory、模型调用 Metrics、Benchmark、Toolsets/MCP、程序化工具调用、Workspace Checkpoint、Terminal Backend、Run 生命周期、Hooks/Plugins、AgentHarness 总装配、Coding Agent，以及可配置、可提交真实任务的 Web Console。
 
 CLI、HTTP Gateway、Cron 与 Local Service 都属于入口或装配层，统一调用 `AgentRuntime`。飞书 Channel 只通过 Local Service 接入：`LocalServiceRegistry` 提供类型化服务注册，`FeishuLocalService` 将事件处理器注册为 `feishu.events`；外部 SDK 只负责传输、验签和反序列化，不经过 HTTP Gateway。
 
-真实 HTTP Server、认证、SSE Runs API、Run/Event 持久化、飞书 SDK 与签名校验、持久化事件幂等、自然语言 schedule 解析、Cron 持久化、跨进程锁、工具级取消、后台 subagent、嵌套 orchestrator、面向模型的通用搜索与 Shell Tool、远端 Terminal Backend、Memory 文件持久化、技能候选文件持久化、diff 审批、Trajectory 查询 API、后台复盘线程、真实模型复盘、完整 diff parser、Coding Agent 对 Terminal Backend 的真实接线、git diff 展示和控制台后端接口仍未实现。SQLite Session 已提供本地持久化与 FTS5 搜索实现，但尚未接入默认 CLI 工厂。
+本地 Web Server、模型配置 API、任务运行 API 和最近一次运行查询已经实现。认证、SSE、异步 Run/Event 持久化、历史分页、飞书 SDK 与签名校验、持久化事件幂等、自然语言 schedule 解析、Cron 持久化、跨进程锁、工具级取消、后台 subagent、嵌套 orchestrator、面向模型的通用搜索与 Shell Tool、远端 Terminal Backend、Memory 文件持久化、技能候选文件持久化、diff 审批、后台复盘线程、真实模型复盘、完整 diff parser、Coding Agent 对 Terminal Backend 的真实接线和 git diff 展示仍未实现。SQLite Session 已提供本地持久化与 FTS5 搜索实现，但尚未接入默认 CLI 工厂。
 
 ## 已实现模块
 
@@ -105,6 +105,11 @@ CLI、HTTP Gateway、Cron 与 Local Service 都属于入口或装配层，统一
 - `com.ading.ai.hermes.plugin.PluginHost`：让插件通过窄 Context 注册工具和 Hook，不直接改写 Main Loop。
 - `com.ading.ai.hermes.harness.AgentHarness`：按 Context Reference、Hook、Workspace Checkpoint、AgentRuntime 与 Run 收口顺序完成总体编排。
 - `com.ading.ai.hermes.runtime.HermesRuntimeFactory`：创建唯一 Harness 主链，并通过 `FeishuLocalService` 把飞书 Handler 注册进 `LocalServiceRegistry`；CLI 和本地服务消费同一份装配结果。
+- `com.ading.ai.hermes.runtime.HermesRuntimeOptions`：把显式项目/用户 Memory、附加系统规则、按需 Skills、上下文预算和文件编辑权限带入工厂装配。
+- `com.ading.ai.hermes.web.HermesWebApplication`：启动只监听本机回环地址的 Web Console，支持端口与默认工作区配置。
+- `com.ading.ai.hermes.web.HermesWebServer`：提供模型配置、真实任务运行、最近一次轨迹查询和静态资源服务，仍复用 `HermesRuntimeFactory` 装配 Runtime。
+- `com.ading.ai.hermes.web.WebRuntimeConfig`：校验 Base URL、API Key、模型与工作区，API Key 只保存在当前 Java 进程内存中。
+- `com.ading.ai.hermes.web.WebRuntimeSettings`：校验 Memory、Skills 目录和工具权限，限制 Skills 目录不能越过工作区，并转换为 `HermesRuntimeOptions`。
 - `com.ading.ai.hermes.verification.CompletionGate`：只在最终回答后调用验证器，以结构化证据决定接受或拒绝，不擅自重跑 Agent。
 - `com.ading.ai.hermes.verification.JavaProjectVerificationDetector`：识别 Maven、Gradle 与 Wrapper，把项目根、命令 argv 和探测证据固化为验证配方。
 - `com.ading.ai.hermes.verification.ProjectVerificationRunner`：在配方指定的项目根顺序执行受限验证命令，首个失败停止，并转换为完成证据。
@@ -112,65 +117,55 @@ CLI、HTTP Gateway、Cron 与 Local Service 都属于入口或装配层，统一
 - `com.ading.ai.hermes.examples.coding.CodingAgentWorkflow`：把上下文收集、结构化模型计划、路径检查、原文匹配、验证命令白名单和 Trajectory 记录串成一次最小改代码任务。
 - `com.ading.ai.hermes.examples.coding.CodingAgentPolicy`：约束每个上下文文件字符预算和允许执行的验证命令前缀。
 - `com.ading.ai.hermes.examples.coding.VerificationRunner`：把测试命令执行抽象成可替换接口，当前测试使用记录型 verifier 固定 Runtime 行为。
-- `web-console/index.html`：静态 AgentOps Mini Console，用于观察 Gateway、Cron、Approval、Trajectory 和 Self Improvement 的运行时状态。
-- `web-console/verify-console.mjs`：检查控制台页面是否包含必要 Runtime 面板、操作钩子和基础结构。
+- `web-console/index.html`：真实 Web Console 的页面入口。
+- `web-console/app.js`：调用本地配置与运行 API，展示最终回答、Tool Request 和 Observation。
+- `web-console/verify-console.mjs`：检查页面结构、API 接线和禁止浏览器持久化凭证等约束。
 - `docs/runtime-boundary.md`：Runtime 边界说明。
 
-## 运行入口
+## 读者运行
 
-先配置 OpenAI-compatible 服务：
+用 IDEA 打开当前项目，确认 Project SDK 支持 Java 21，然后选择 CLI 或 Web 入口。两种入口都会访问真实 OpenAI-compatible 模型，并调用同一套 `HermesRuntimeFactory`。
 
-```bash
-export OPENAI_BASE_URL=https://your-openai-compatible-endpoint
-export OPENAI_API_KEY=your-api-key
-export OPENAI_MODEL=your-tool-capable-model
+### 入口一：CLI
+
+创建 `JavaHermesApplication` 的 Run Configuration：
+
+- Main class：`com.ading.ai.hermes.cli.JavaHermesApplication`
+- Working directory：选择允许 Agent 读写的工作区
+- Environment variables：填写 `OPENAI_BASE_URL`、`OPENAI_API_KEY`、`OPENAI_MODEL`
+- Program arguments：`--prompt "读取 README.md，概括这个项目解决的问题" --max-turns 8`
+
+运行 `JavaHermesApplication.main()` 后，终端会输出最终回答、结束原因和模型轮次。把任务改为读取或编辑工作区文件，可以继续观察 `read_file`、`list_files` 与 `edit_file` 的真实工具闭环。
+
+### 入口二：Web Console
+
+直接运行 `com.ading.ai.hermes.web.HermesWebApplication.main()`，然后访问：
+
+```text
+http://127.0.0.1:8080
 ```
 
-运行完整测试：
+第一次打开时，在“模型配置”页填写 Base URL、API Key、支持 Tool Call 的模型名和工作区。然后进入“运行时配置”，填写附加系统规则、项目记忆、用户记忆和工作区内的 Skills 目录，并决定是否允许文件编辑。保存运行时配置会通过 `HermesRuntimeFactory` 重新装配 Runtime，清空上一条轨迹；页面列出的 Skill 来自真实 `SKILL.md`，不是预置标签。
+
+项目提供 `examples/skills/reader-summary/SKILL.md`。把 Skills 目录设置为 `examples/skills`，提交包含“总结”或“概括”的读取任务，即可验证 Skill 按需进入模型上下文。“运行轨迹”会展示真实的最终回答、模型轮次、Tool Request 和 Observation；刷新页面后仍能取回当前 Java 进程内最近一次运行。
+
+Web 服务只监听 `127.0.0.1`。API Key 只保存在 Java 进程内存中，不会返回浏览器、不写入浏览器存储，也不落入项目文件。Memory 与运行时设置当前同样是进程内配置，服务重启后需要重新填写；自动持久化、Memory 写入审批和版本化 Skill 发布不在这个本地切片中。端口冲突时可在 Run Configuration 中设置 `HERMES_WEB_PORT`；需要预设工作区时可设置 `HERMES_WORKSPACE`。
+
+`OPENAI_BASE_URL` 可以是官方 OpenAI 地址，也可以是兼容 `/v1/chat/completions` 的服务地址。模型必须支持 Tool Call。不要把 API Key 写进 `pom.xml`、源码、测试资源或启动脚本。
+
+## 运行链路
+
+`JavaHermesApplication` 调用 `HermesRuntimeFactory` 完成进程内装配，CLI 使用 `assembly.runtime()`；`HermesWebApplication` 通过本地 HTTP Server 调用同一装配入口。工厂同时通过 `LocalServiceRegistry` 注册飞书 Handler，网络或 SDK adapter 只负责传输，不在回调中复制 Runtime。
+
+## 贡献者验证
+
+读者学习不需要执行本节命令。修改项目源码后，贡献者可以运行完整合同测试与真实模型集成测试：
 
 ```bash
 mvn test
 ```
 
-环境变量配置正确时，这条命令会运行全部确定性合同测试，以及三项真实模型测试：文本请求、结构化 Coding Plan、Harness 真实调用 `read_file` 和 `edit_file`。最终摘要应为 `Skipped: 0`；出现跳过说明真实模型配置没有进入测试进程，不能算完成本地验收。
-
-需要单独排查真实模型链路时，可以只运行三项集成测试：
-
-```bash
-mvn -Dtest=OpenAiCompatibleModelProviderIntegrationTest,CodingAgentWorkflowIntegrationTest,HermesRuntimeFactoryIntegrationTest test
-```
-
-`OPENAI_BASE_URL` 可以是官方 OpenAI 地址，也可以是兼容 `/v1/chat/completions` 的服务地址。模型必须支持 Tool Call，API Key 只通过进程环境传入，不要写进 `pom.xml`、测试资源或启动脚本。
-
-构建并运行可执行 JAR：
-
-```bash
-mvn package
-java -jar target/java-hermes-agent-harness-0.1.0-SNAPSHOT.jar \
-  --prompt "读取 README，并概括当前已实现模块" \
-  --max-turns 8
-```
-
-`JavaHermesApplication` 调用 `HermesRuntimeFactory` 完成进程内装配，CLI 使用 `assembly.runtime()`；工厂同时通过 `LocalServiceRegistry` 注册飞书 Handler。网络或 SDK adapter 只调用注册服务，不在回调中复制 Runtime。
-
-最小控制台不需要启动服务，直接打开文件即可：
-
-```text
-web-console/index.html
-```
-
-控制台结构检查：
-
-```bash
-node web-console/verify-console.mjs
-```
-
-## 验证约定
-
-- 第一次运行先配置 Base URL、API Key 和支持 Tool Call 的模型名。
-- `mvn test` 同时运行确定性合同测试和真实模型验收，不能只取其中一层作为完成证据。
-- 真实模型的文件修改和工具闭环在临时工作区中执行，不接触当前开发仓库。
-- GitHub Actions 在 Linux、macOS 和 Windows 上验证确定性合同；发布前还要在有凭证的环境中完成真实模型验收。
+真实模型凭证通过进程环境传入。环境变量配置正确时，测试摘要中的 `Skipped` 应为 `0`；GitHub Actions 则在 Linux、macOS 和 Windows 上执行不依赖外部服务的合同测试。
 
 ## 参考
 

@@ -6,12 +6,14 @@ import java.util.Objects;
 
 public record OpenAiCompatibleOptions(URI baseUrl, String apiKey, Duration timeout) {
 
+    private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(90);
+
     public OpenAiCompatibleOptions {
         Objects.requireNonNull(baseUrl, "baseUrl must not be null");
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalArgumentException("apiKey must not be blank");
         }
-        timeout = timeout == null ? Duration.ofSeconds(30) : timeout;
+        timeout = timeout == null ? DEFAULT_TIMEOUT : timeout;
         if (timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("timeout must be positive");
         }
@@ -21,7 +23,7 @@ public record OpenAiCompatibleOptions(URI baseUrl, String apiKey, Duration timeo
         if (baseUrl == null || baseUrl.isBlank()) {
             throw new IllegalArgumentException("baseUrl must not be blank");
         }
-        return new OpenAiCompatibleOptions(URI.create(baseUrl), apiKey, Duration.ofSeconds(30));
+        return new OpenAiCompatibleOptions(URI.create(baseUrl), apiKey, DEFAULT_TIMEOUT);
     }
 
     URI chatCompletionsUri() {

@@ -131,4 +131,20 @@ class SkillLoaderTest {
 
         assertEquals("task must not be blank", error.getMessage());
     }
+
+    @Test
+    void emptyDescriptionDoesNotMatchEveryTask() {
+        SkillManifest skill = new SkillManifest(
+                "focused-review",
+                "",
+                "1.0.0",
+                true,
+                List.of("review this change"),
+                "Inspect the diff."
+        );
+
+        List<SkillManifest> matches = new SkillResolver(List.of(skill)).resolve("summarize README");
+
+        assertEquals(List.of(), matches);
+    }
 }

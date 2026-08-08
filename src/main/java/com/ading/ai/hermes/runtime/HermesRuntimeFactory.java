@@ -12,6 +12,7 @@ import com.ading.ai.hermes.gateway.local.FeishuLocalService;
 import com.ading.ai.hermes.gateway.local.LocalServiceRegistry;
 import com.ading.ai.hermes.harness.AgentHarness;
 import com.ading.ai.hermes.hook.RuntimeHookChain;
+import com.ading.ai.hermes.model.ChatRequestFactory;
 import com.ading.ai.hermes.model.ModelOptions;
 import com.ading.ai.hermes.model.ModelProvider;
 import com.ading.ai.hermes.model.ModelProviderDriver;
@@ -27,9 +28,6 @@ import java.util.Objects;
 
 public final class HermesRuntimeFactory {
 
-    private static final int MAX_FILE_CHARACTERS = 40_000;
-    private static final int MAX_REFERENCED_CONTEXT_CHARACTERS = 100_000;
-
     private HermesRuntimeFactory() {
     }
 
@@ -39,19 +37,39 @@ public final class HermesRuntimeFactory {
             ModelOptions modelOptions,
             FeishuReplySink feishuReplySink
     ) {
+        return create(
+                workspace,
+                provider,
+                modelOptions,
+                feishuReplySink,
+                HermesRuntimeOptions.defaults()
+        );
+    }
+
+    public static HermesRuntimeAssembly create(
+            Path workspace,
+            ModelProvider provider,
+            ModelOptions modelOptions,
+            FeishuReplySink feishuReplySink,
+            HermesRuntimeOptions runtimeOptions
+    ) {
         Objects.requireNonNull(provider, "provider must not be null");
         Objects.requireNonNull(modelOptions, "modelOptions must not be null");
         Objects.requireNonNull(feishuReplySink, "feishuReplySink must not be null");
+        Objects.requireNonNull(runtimeOptions, "runtimeOptions must not be null");
 
-        ToolRegistry tools = new WorkspaceFileTools(workspace, MAX_FILE_CHARACTERS)
+        ToolRegistry tools = new WorkspaceFileTools(workspace, runtimeOptions.maxFileCharacters())
                 .registerInto(ToolRegistry.empty());
-        tools = new WorkspaceEditTool(workspace).registerInto(tools);
-        PromptBuilder promptBuilder = new PromptBuilder(
-                PromptPolicy.hermesDefault(),
-                tools.specs(),
+        if (runtimeOptions.fileEditingEnabled()) {
+            tools = new WorkspaceEditTool(workspace).registerInto(tools);
+        }
+        ToolRegistry configuredTools = tools;
+        ChatRequestFactory requestFactory = state -> new PromptBuilder(
+                new PromptPolicy(runtimeOptions.systemPromptFor(state.events().getFirst().text())),
+                configuredTools.specs(),
                 modelOptions
-        );
-        ModelProviderDriver modelDriver = new ModelProviderDriver(provider, promptBuilder);
+        ).create(state);
+        ModelProviderDriver modelDriver = new ModelProviderDriver(provider, requestFactory);
         ToolBatchRunner toolRunner = new ToolBatchRunner(
                 tools,
                 4,
@@ -65,7 +83,7 @@ public final class HermesRuntimeFactory {
                 ).run(request),
                 new ContextReferenceResolver(
                         workspace,
-                        MAX_REFERENCED_CONTEXT_CHARACTERS,
+                        runtimeOptions.maxReferencedContextCharacters(),
                         UrlContextFetcher.disabled(),
                         new ProcessGitContextReader(workspace)
                 ),
