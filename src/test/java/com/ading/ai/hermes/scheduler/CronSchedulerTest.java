@@ -5,6 +5,8 @@ import com.ading.ai.hermes.core.AgentRunResult;
 import com.ading.ai.hermes.core.AgentRuntime;
 import com.ading.ai.hermes.core.AgentState;
 import com.ading.ai.hermes.core.FinishReason;
+import com.ading.ai.hermes.core.IterationBudget;
+import com.ading.ai.hermes.control.AdmissionDecision;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -116,6 +118,43 @@ class CronSchedulerTest {
 
         CronTickResult result = scheduler.tick(List.of(pausedJob, futureJob), now);
 
+        assertTrue(result.runs().isEmpty());
+        assertEquals(0, runtimeCalls.get());
+    }
+
+    @Test
+    void skipsAllNewRunsWhileGlobalAdmissionIsPaused() {
+        AtomicInteger runtimeCalls = new AtomicInteger();
+        CronScheduler scheduler = new CronScheduler(
+                request -> {
+                    runtimeCalls.incrementAndGet();
+                    return new AgentRunResult(
+                            FinishReason.FINAL_ANSWER,
+                            "unused",
+                            AgentState.start(request.userMessage())
+                    );
+                },
+                new RecordingDeliverySink(),
+                IterationBudget.maxTurns(4),
+                () -> AdmissionDecision.reject("maintenance")
+        );
+        CronJob job = new CronJob(
+                "job-paused-globally",
+                "global-pause",
+                "Do not start",
+                CronSchedule.everyMinutes(15),
+                Instant.parse("2026-06-20T09:45:00Z"),
+                DeliveryTarget.local("paused"),
+                false
+        );
+
+        CronTickResult result = scheduler.tick(
+                List.of(job),
+                Instant.parse("2026-06-20T10:00:00Z")
+        );
+
+        assertTrue(result.skipped());
+        assertEquals("maintenance", result.skippedReason());
         assertTrue(result.runs().isEmpty());
         assertEquals(0, runtimeCalls.get());
     }

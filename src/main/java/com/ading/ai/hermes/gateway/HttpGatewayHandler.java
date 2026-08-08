@@ -4,6 +4,8 @@ import com.ading.ai.hermes.core.AgentRunRequest;
 import com.ading.ai.hermes.core.AgentRunResult;
 import com.ading.ai.hermes.core.AgentRuntime;
 import com.ading.ai.hermes.core.IterationBudget;
+import com.ading.ai.hermes.control.AdmissionDecision;
+import com.ading.ai.hermes.control.NewWorkPolicy;
 
 import java.util.Map;
 import java.util.Objects;
@@ -15,14 +17,24 @@ public final class HttpGatewayHandler {
 
     private final AgentRuntime runtime;
     private final IterationBudget defaultBudget;
+    private final NewWorkPolicy newWorkPolicy;
 
     public HttpGatewayHandler(AgentRuntime runtime) {
-        this(runtime, IterationBudget.maxTurns(6));
+        this(runtime, IterationBudget.maxTurns(6), NewWorkPolicy.allowAll());
     }
 
     public HttpGatewayHandler(AgentRuntime runtime, IterationBudget defaultBudget) {
+        this(runtime, defaultBudget, NewWorkPolicy.allowAll());
+    }
+
+    public HttpGatewayHandler(
+            AgentRuntime runtime,
+            IterationBudget defaultBudget,
+            NewWorkPolicy newWorkPolicy
+    ) {
         this.runtime = Objects.requireNonNull(runtime, "runtime must not be null");
         this.defaultBudget = Objects.requireNonNull(defaultBudget, "defaultBudget must not be null");
+        this.newWorkPolicy = Objects.requireNonNull(newWorkPolicy, "newWorkPolicy must not be null");
     }
 
     public HttpGatewayResponse handle(HttpGatewayRequest request) {
@@ -38,6 +50,13 @@ public final class HttpGatewayHandler {
         String validationError = validate(turnRequest, request.header(SESSION_KEY_HEADER));
         if (!validationError.isBlank()) {
             return error(400, validationError);
+        }
+        AdmissionDecision admission = Objects.requireNonNull(
+                newWorkPolicy.evaluate(),
+                "newWorkPolicy result must not be null"
+        );
+        if (!admission.allowed()) {
+            return error(503, admission.reason());
         }
 
         AgentRunResult result = runtime.run(AgentRunRequest.from(

@@ -10,6 +10,7 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ProgrammaticToolRuntimeTest {
 
@@ -72,6 +73,26 @@ class ProgrammaticToolRuntimeTest {
 
         assertEquals(ProgrammaticToolStatus.BUDGET_EXCEEDED, result.status());
         assertEquals(1, result.toolCalls());
+    }
+
+    @Test
+    void preservesTheBeginningAndEndWhenOutputIsTruncated() {
+        ProgrammaticToolRuntime runtime = new ProgrammaticToolRuntime(registry());
+        String output = "HEAD-" + "x".repeat(60_000) + "-TAIL";
+
+        ProgrammaticToolResult result = runtime.execute(new ProgrammaticToolRequest(
+                "long-output",
+                context -> output,
+                Set.of(),
+                1,
+                Duration.ofSeconds(1)
+        ));
+
+        assertEquals(ProgrammaticToolStatus.SUCCESS, result.status());
+        assertEquals(50_000, result.output().length());
+        assertTrue(result.output().startsWith("HEAD-"));
+        assertTrue(result.output().contains("... [output truncated] ..."));
+        assertTrue(result.output().endsWith("-TAIL"));
     }
 
     private static ToolRegistry registry() {

@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -33,12 +34,16 @@ public final class LocalProcessTerminalBackend implements TerminalBackend {
     public LocalProcessTerminalBackend(Path workspace, Set<String> allowedEnvironment) {
         this.pathPolicy = new WorkspacePathPolicy(workspace);
         this.workspace = pathPolicy.root();
-        this.allowedEnvironment = Set.copyOf(allowedEnvironment);
+        this.allowedEnvironment = Set.copyOf(Objects.requireNonNull(
+                allowedEnvironment,
+                "allowedEnvironment must not be null"
+        ));
     }
 
     @Override
     public TerminalResult execute(TerminalCommand command) {
-        Path workingDirectory = pathPolicy.resolveExisting(command.workingDirectory().toString());
+        Objects.requireNonNull(command, "command must not be null");
+        Path workingDirectory = resolveWorkingDirectory(command.workingDirectory());
         if (!Files.isDirectory(workingDirectory)) {
             throw new IllegalArgumentException("terminal working directory does not exist");
         }
@@ -101,6 +106,26 @@ public final class LocalProcessTerminalBackend implements TerminalBackend {
                     "failed to collect terminal output: " + exception.getMessage(),
                     -1,
                     false
+            );
+        }
+    }
+
+    private Path resolveWorkingDirectory(Path requested) {
+        if (!requested.isAbsolute()) {
+            return pathPolicy.resolveExisting(requested.toString());
+        }
+        try {
+            Path resolved = requested.toRealPath();
+            if (!resolved.startsWith(workspace)) {
+                throw new IllegalArgumentException(
+                        "terminal working directory is outside workspace"
+                );
+            }
+            return resolved;
+        } catch (IOException exception) {
+            throw new IllegalArgumentException(
+                    "terminal working directory does not exist",
+                    exception
             );
         }
     }

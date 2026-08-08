@@ -6,6 +6,8 @@ import com.ading.ai.hermes.core.AgentRunResult;
 import com.ading.ai.hermes.core.AgentRuntime;
 import com.ading.ai.hermes.core.AgentState;
 import com.ading.ai.hermes.core.FinishReason;
+import com.ading.ai.hermes.core.IterationBudget;
+import com.ading.ai.hermes.control.AdmissionDecision;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -118,5 +120,33 @@ class HttpGatewayHandlerTest {
         assertEquals(400, response.status());
         assertEquals(0, runtimeCalls.get());
         assertFalse(response.error().isBlank());
+    }
+
+    @Test
+    void rejectsValidNewWorkWhileAdmissionIsPaused() {
+        AtomicInteger runtimeCalls = new AtomicInteger();
+        HttpGatewayHandler handler = new HttpGatewayHandler(
+                request -> {
+                    runtimeCalls.incrementAndGet();
+                    return new AgentRunResult(
+                            FinishReason.FINAL_ANSWER,
+                            "unused",
+                            AgentState.start(request.userMessage())
+                    );
+                },
+                IterationBudget.maxTurns(6),
+                () -> AdmissionDecision.reject("maintenance")
+        );
+
+        HttpGatewayResponse response = handler.handle(new HttpGatewayRequest(
+                "POST",
+                "/v1/turns",
+                Map.of(),
+                new GatewayTurnRequest("web-ui", "c1", "hello", Map.of())
+        ));
+
+        assertEquals(503, response.status());
+        assertEquals("maintenance", response.error());
+        assertEquals(0, runtimeCalls.get());
     }
 }

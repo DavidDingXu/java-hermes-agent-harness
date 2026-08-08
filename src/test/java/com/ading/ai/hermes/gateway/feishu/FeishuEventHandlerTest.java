@@ -4,6 +4,7 @@ import com.ading.ai.hermes.core.AgentRunResult;
 import com.ading.ai.hermes.core.AgentRunRequest;
 import com.ading.ai.hermes.core.AgentState;
 import com.ading.ai.hermes.core.FinishReason;
+import com.ading.ai.hermes.control.AdmissionDecision;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -69,5 +70,32 @@ class FeishuEventHandlerTest {
         assertThrows(IllegalStateException.class, () -> handler.handle(event));
         assertEquals(FeishuHandleStatus.PROCESSED, handler.handle(event).status());
         assertEquals(2, calls.get());
+    }
+
+    @Test
+    void rejectsNewTextEventsWhileGlobalAdmissionIsPaused() {
+        AtomicInteger calls = new AtomicInteger();
+        List<FeishuReply> replies = new ArrayList<>();
+        FeishuEventHandler handler = new FeishuEventHandler(
+                request -> {
+                    calls.incrementAndGet();
+                    return new AgentRunResult(
+                            FinishReason.FINAL_ANSWER,
+                            "unused",
+                            AgentState.start(request.userMessage())
+                    );
+                },
+                replies::add,
+                () -> AdmissionDecision.reject("planned maintenance")
+        );
+
+        FeishuHandleResult result = handler.handle(
+                FeishuEvent.text("evt-paused", "chat-1", "user-1", "inspect logs")
+        );
+
+        assertEquals(FeishuHandleStatus.REJECTED, result.status());
+        assertEquals("planned maintenance", result.error());
+        assertEquals(0, calls.get());
+        assertTrue(replies.isEmpty());
     }
 }

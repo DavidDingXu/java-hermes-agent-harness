@@ -4,6 +4,7 @@ import com.ading.ai.hermes.checkpoint.FileWorkspaceCheckpointStore;
 import com.ading.ai.hermes.context.reference.ContextReferenceResolver;
 import com.ading.ai.hermes.context.reference.ProcessGitContextReader;
 import com.ading.ai.hermes.context.reference.UrlContextFetcher;
+import com.ading.ai.hermes.control.FileEmergencyStop;
 import com.ading.ai.hermes.core.InterruptibleAgentLoop;
 import com.ading.ai.hermes.gateway.feishu.FeishuEventHandler;
 import com.ading.ai.hermes.gateway.feishu.FeishuReplySink;
@@ -73,10 +74,20 @@ public final class HermesRuntimeFactory {
                 RuntimeHookChain.empty()
         );
         HarnessAgentRuntime runtime = new HarnessAgentRuntime(harness);
+        FileEmergencyStop emergencyStop = new FileEmergencyStop(
+                workspace.resolve(".hermes").resolve("ESTOP")
+        );
         LocalServiceRegistry localServices = FeishuLocalService.register(
                 LocalServiceRegistry.empty(),
-                new FeishuEventHandler(runtime, feishuReplySink)
+                new FeishuEventHandler(runtime, feishuReplySink, emergencyStop)
         );
-        return new HermesRuntimeAssembly(runtime, harness, runs, tools, localServices);
+        return new HermesRuntimeAssembly(
+                runtime,
+                harness,
+                runs,
+                tools,
+                localServices,
+                emergencyStop
+        );
     }
 }

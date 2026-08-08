@@ -70,7 +70,8 @@ CLI、HTTP Gateway、Cron 与 Local Service 都属于入口或装配层，统一
 - `com.ading.ai.hermes.gateway.feishu.FeishuEventHandler`：处理 Challenge、文本校验、事件去重、会话映射、Runtime 调用与回复投递；失败事件允许重试。
 - `com.ading.ai.hermes.gateway.local.LocalServiceRegistry`：按稳定名称注册类型化本地服务，拒绝重复服务名和错误请求类型。
 - `com.ading.ai.hermes.gateway.local.FeishuLocalService`：把 `FeishuEventHandler` 注册为 `feishu.events`，服务容器不复制 Runtime 逻辑。
-- `com.ading.ai.hermes.scheduler.CronScheduler`：在 tick 时选择到期任务、claim fire key、调用同一个 `AgentRuntime`，并把 `CronRunRecord` 交给投递接口。
+- `com.ading.ai.hermes.scheduler.CronScheduler`：在 tick 时检查全局新工作策略、选择到期任务、claim fire key、调用同一个 `AgentRuntime`，并把 `CronRunRecord` 交给投递接口。
+- `com.ading.ai.hermes.control.FileEmergencyStop`：用原子更新的工作区哨兵暂停 HTTP、飞书与 Cron 新工作；损坏哨兵按失败关闭处理，不终止已经运行的任务。
 - `com.ading.ai.hermes.scheduler.CronJob`：描述定时任务的 id、name、prompt、schedule、nextRunAt、deliveryTarget 和暂停状态。
 - `com.ading.ai.hermes.scheduler.CronRunRecord`：记录一次 Cron 执行的 runId、jobId、fireKey、firedAt、nextRunAt、finalAnswer 和 finishReason。
 - `com.ading.ai.hermes.delegate.SubAgentRunner`：按结构化任务运行隔离子任务，只把 summary、状态、结束原因和预算使用合并回父级结果。
@@ -105,6 +106,8 @@ CLI、HTTP Gateway、Cron 与 Local Service 都属于入口或装配层，统一
 - `com.ading.ai.hermes.harness.AgentHarness`：按 Context Reference、Hook、Workspace Checkpoint、AgentRuntime 与 Run 收口顺序完成总体编排。
 - `com.ading.ai.hermes.runtime.HermesRuntimeFactory`：创建唯一 Harness 主链，并通过 `FeishuLocalService` 把飞书 Handler 注册进 `LocalServiceRegistry`；CLI 和本地服务消费同一份装配结果。
 - `com.ading.ai.hermes.verification.CompletionGate`：只在最终回答后调用验证器，以结构化证据决定接受或拒绝，不擅自重跑 Agent。
+- `com.ading.ai.hermes.verification.JavaProjectVerificationDetector`：识别 Maven、Gradle 与 Wrapper，把项目根、命令 argv 和探测证据固化为验证配方。
+- `com.ading.ai.hermes.verification.ProjectVerificationRunner`：在配方指定的项目根顺序执行受限验证命令，首个失败停止，并转换为完成证据。
 - `com.ading.ai.hermes.eval.BenchmarkRunner`：运行正式 `AgentRuntime`，由案例评估器依据结构化证据打分并聚合报告。
 - `com.ading.ai.hermes.examples.coding.CodingAgentWorkflow`：把上下文收集、结构化模型计划、路径检查、原文匹配、验证命令白名单和 Trajectory 记录串成一次最小改代码任务。
 - `com.ading.ai.hermes.examples.coding.CodingAgentPolicy`：约束每个上下文文件字符预算和允许执行的验证命令前缀。
@@ -180,11 +183,12 @@ web-console/index.html
 node web-console/verify-console.mjs
 ```
 
-实现模块时，每个功能都要留下可运行测试：
+## 验证约定
 
-- 核心类放在清晰的包边界里。
-- 行为先用测试固定。
-- README 只写读者能运行和核对的信息。
+- 默认测试全部离线运行，不依赖真实模型凭证。
+- 涉及网络的集成测试需要显式提供环境变量，没有凭证时自动跳过。
+- 文件修改、命令执行和真实模型工具闭环都在临时工作区中验证。
+- GitHub Actions 在 Linux、macOS 和 Windows 上运行同一套离线测试。
 
 ## 参考
 

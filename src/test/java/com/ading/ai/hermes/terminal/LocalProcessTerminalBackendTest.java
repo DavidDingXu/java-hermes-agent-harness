@@ -40,6 +40,17 @@ class LocalProcessTerminalBackendTest {
     }
 
     @Test
+    void rejectsBlankArgvElementsBeforeStartingAProcess() {
+        assertThrows(IllegalArgumentException.class, () -> new TerminalCommand(
+                List.of(javaBinary(), ""),
+                Path.of("."),
+                Map.of(),
+                Duration.ofSeconds(5),
+                10_000
+        ));
+    }
+
+    @Test
     void passesOnlyExplicitlyAllowedEnvironmentVariables() {
         LocalProcessTerminalBackend backend = new LocalProcessTerminalBackend(
                 workspace, Set.of("SAFE_VALUE")
@@ -70,6 +81,22 @@ class LocalProcessTerminalBackendTest {
                 Duration.ofSeconds(5),
                 10_000
         )));
+    }
+
+    @Test
+    void acceptsAnAbsoluteWorkingDirectoryInsideWorkspace() throws Exception {
+        Path module = Files.createDirectories(workspace.resolve("module"));
+        LocalProcessTerminalBackend backend = new LocalProcessTerminalBackend(workspace, Set.of());
+
+        TerminalResult result = backend.execute(new TerminalCommand(
+                List.of(javaBinary(), "-version"),
+                module.toAbsolutePath(),
+                Map.of(),
+                Duration.ofSeconds(5),
+                10_000
+        ));
+
+        assertEquals(TerminalStatus.SUCCESS, result.status());
     }
 
     @Test

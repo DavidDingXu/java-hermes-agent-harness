@@ -4,6 +4,7 @@ import com.ading.ai.hermes.core.ToolObservation;
 import com.ading.ai.hermes.core.ToolRequest;
 import com.ading.ai.hermes.tool.ToolRegistry;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -15,14 +16,16 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class ProgrammaticToolRuntime {
 
     private static final int MAX_OUTPUT_CHARACTERS = 50_000;
+    private static final String TRUNCATION_MARKER = "\n... [output truncated] ...\n";
 
     private final ToolRegistry registry;
 
     public ProgrammaticToolRuntime(ToolRegistry registry) {
-        this.registry = registry;
+        this.registry = Objects.requireNonNull(registry, "registry must not be null");
     }
 
     public ProgrammaticToolResult execute(ProgrammaticToolRequest request) {
+        Objects.requireNonNull(request, "request must not be null");
         AtomicInteger toolCalls = new AtomicInteger();
         ProgrammaticToolContext context = (toolName, arguments) -> {
             if (!request.allowedTools().contains(toolName)) {
@@ -92,7 +95,12 @@ public final class ProgrammaticToolRuntime {
         if (output.length() <= MAX_OUTPUT_CHARACTERS) {
             return output;
         }
-        return output.substring(0, MAX_OUTPUT_CHARACTERS) + "\n[output truncated]";
+        int retainedCharacters = MAX_OUTPUT_CHARACTERS - TRUNCATION_MARKER.length();
+        int headCharacters = (retainedCharacters + 1) / 2;
+        int tailCharacters = retainedCharacters / 2;
+        return output.substring(0, headCharacters)
+                + TRUNCATION_MARKER
+                + output.substring(output.length() - tailCharacters);
     }
 
     private static final class ProgramFailure extends RuntimeException {

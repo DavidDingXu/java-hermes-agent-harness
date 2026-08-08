@@ -8,7 +8,7 @@
     <artifactId>java-hermes-agent-harness</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <name>java-hermes-agent-harness</name>
-    <description>Java implementation playground for a Hermes-style self-improving AI agent runtime.</description>
+    <description>Reference implementation of a Hermes-style Agent Harness in Java.</description>
 
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
