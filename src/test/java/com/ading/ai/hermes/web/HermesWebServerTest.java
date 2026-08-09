@@ -6,6 +6,13 @@ import com.ading.ai.hermes.core.AgentState;
 import com.ading.ai.hermes.core.FinishReason;
 import com.ading.ai.hermes.core.ToolObservation;
 import com.ading.ai.hermes.core.ToolRequest;
+import com.ading.ai.hermes.model.ChatResponse;
+import com.ading.ai.hermes.model.ModelOptions;
+import com.ading.ai.hermes.runtime.HermesRuntimeAssembly;
+import com.ading.ai.hermes.runtime.HermesRuntimeFactory;
+import com.ading.ai.hermes.skill.SkillCandidate;
+import com.ading.ai.hermes.skill.SkillProvenance;
+import com.ading.ai.hermes.skill.SkillSourceKind;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.InetSocketAddress;
@@ -18,6 +25,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,11 +47,14 @@ class HermesWebServerTest {
     private URI baseUri;
     private AtomicReference<WebRuntimeConfig> configured;
     private AtomicReference<WebRuntimeSettings> configuredSettings;
+    private AtomicReference<HermesRuntimeAssembly> configuredAssembly;
 
     @BeforeEach
-    void startServer() {
+    void startServer() throws Exception {
         configured = new AtomicReference<>();
         configuredSettings = new AtomicReference<>();
+        configuredAssembly = new AtomicReference<>();
+        Files.writeString(workspace.resolve("README.md"), "# Hermes");
         server = new HermesWebServer(
                 new InetSocketAddress("127.0.0.1", 0),
                 workspace,
@@ -51,20 +62,26 @@ class HermesWebServerTest {
                 (config, settings) -> {
                     configured.set(config);
                     configuredSettings.set(settings);
-                    return request -> new AgentRunResult(
-                            FinishReason.FINAL_ANSWER,
-                            "README inspected",
-                            new AgentState(List.of(
-                                    AgentEvent.userMessage(request.userMessage()),
-                                    AgentEvent.toolRequested(new ToolRequest(
-                                            "call-1", "read_file", Map.of("path", "README.md")
+                    AtomicInteger calls = new AtomicInteger();
+                    HermesRuntimeAssembly assembly = HermesRuntimeFactory.create(
+                            config.workspace(),
+                            request -> calls.getAndIncrement() == 0
+                                    ? ChatResponse.of(com.ading.ai.hermes.core.ModelTurn.toolRequest(
+                                            new ToolRequest(
+                                                    "call-1",
+                                                    "read_file",
+                                                    Map.of("path", "README.md")
+                                            )
+                                    ))
+                                    : ChatResponse.of(com.ading.ai.hermes.core.ModelTurn.finalAnswer(
+                                            "README inspected"
                                     )),
-                                    AgentEvent.toolObserved(ToolObservation.success(
-                                            "call-1", "# Hermes"
-                                    )),
-                                    AgentEvent.modelFinalAnswer("README inspected")
-                            ), 2)
+                            new ModelOptions(config.model(), 0.0),
+                            reply -> { },
+                            settings.toRuntimeOptions()
                     );
+                    configuredAssembly.set(assembly);
+                    return assembly;
                 }
         );
         server.start();
@@ -156,6 +173,74 @@ class HermesWebServerTest {
                 "workspace", workspace.toString()
         ));
         assertFalse(objectMapper.readTree(get("/api/runs/latest").body()).path("available").asBoolean());
+    }
+
+    @Test
+    void exposesPersistedRuntimeEvidenceAndSkillApproval() throws Exception {
+        post("/api/config", Map.of(
+                "baseUrl", "https://models.example/v1",
+                "apiKey", "reader-secret-value",
+                "model", "hermes-model",
+                "workspace", workspace.toString()
+        ));
+        post("/api/runs", Map.of("prompt", "inspect README", "maxTurns", 4));
+
+        JsonNode operations = objectMapper.readTree(get("/api/operations").body());
+        JsonNode sessions = objectMapper.readTree(get("/api/sessions/search?q=README").body());
+
+        assertEquals(2, operations.path("modelCalls").asInt());
+        assertEquals(1, operations.path("trajectoryRecords").asInt());
+        assertTrue(operations.path("latestTrajectoryAvailable").asBoolean());
+        assertTrue(sessions.path("hits").size() >= 1);
+
+        SkillCandidate candidate = new SkillCandidate(
+                "reader-summary",
+                "Summarize technical material",
+                List.of("summary"),
+                "Lead with the conclusion.",
+                SkillProvenance.fromContent(
+                        SkillSourceKind.AGENT_CREATED,
+                        "review/web-test",
+                        "reader-summary",
+                        "candidate",
+                        "Lead with the conclusion."
+                )
+        );
+        String candidateId = configuredAssembly.get().skillApprovals().submit(candidate).id();
+
+        JsonNode pending = objectMapper.readTree(get("/api/skills/pending").body());
+        assertEquals(candidateId, pending.path("candidates").get(0).path("id").asText());
+
+        JsonNode approved = objectMapper.readTree(post(
+                "/api/skills/" + candidateId + "/approve",
+                Map.of()
+        ).body());
+        assertEquals("reader-summary", approved.path("skill").path("name").asText());
+        assertEquals(0, objectMapper.readTree(get("/api/skills/pending").body())
+                .path("candidates").size());
+    }
+
+    @Test
+    void redactsSecretsFromRunAndLatestRunResponses() throws Exception {
+        String secret = "sk-demo-secret";
+        Files.writeString(workspace.resolve("README.md"), "api_key=" + secret);
+        post("/api/config", Map.of(
+                "baseUrl", "https://models.example/v1",
+                "apiKey", "provider-secret",
+                "model", "hermes-model",
+                "workspace", workspace.toString()
+        ));
+
+        HttpResponse<String> run = post("/api/runs", Map.of(
+                "prompt", "inspect README",
+                "maxTurns", 4
+        ));
+        HttpResponse<String> latest = get("/api/runs/latest");
+
+        assertEquals(200, run.statusCode());
+        assertFalse(run.body().contains(secret));
+        assertFalse(latest.body().contains(secret));
+        assertTrue(run.body().contains("[REDACTED]"));
     }
 
     private HttpResponse<String> get(String path) throws Exception {

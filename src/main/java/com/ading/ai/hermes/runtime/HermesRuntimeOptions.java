@@ -6,7 +6,9 @@ import com.ading.ai.hermes.skill.SkillResolver;
 import com.ading.ai.hermes.skill.SkillTrustAction;
 import com.ading.ai.hermes.skill.TrustedSkillPolicy;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 public record HermesRuntimeOptions(
@@ -39,16 +41,32 @@ public record HermesRuntimeOptions(
     }
 
     public String systemPromptFor(String task) {
+        return systemPromptFor(task, List.of(), List.of(), List.of());
+    }
+
+    public String systemPromptFor(
+            String task,
+            List<String> learnedProjectMemory,
+            List<String> learnedUserMemory,
+            List<SkillManifest> approvedSkills
+    ) {
         if (task == null || task.isBlank()) {
             throw new IllegalArgumentException("task must not be blank");
         }
+        Objects.requireNonNull(learnedProjectMemory, "learnedProjectMemory must not be null");
+        Objects.requireNonNull(learnedUserMemory, "learnedUserMemory must not be null");
+        Objects.requireNonNull(approvedSkills, "approvedSkills must not be null");
         List<String> sections = new ArrayList<>();
         sections.add(PromptPolicy.hermesDefault().systemPrompt());
         addSection(sections, "Additional runtime rules", systemPromptAppendix);
-        addSection(sections, "Project memory", projectMemory);
-        addSection(sections, "User memory", userMemory);
+        addSection(sections, "Project memory", mergeMemory(projectMemory, learnedProjectMemory));
+        addSection(sections, "User memory", mergeMemory(userMemory, learnedUserMemory));
 
-        List<SkillManifest> activeSkills = new SkillResolver(skills).resolve(task).stream()
+        Map<String, SkillManifest> availableSkills = new LinkedHashMap<>();
+        skills.forEach(skill -> availableSkills.put(skill.name(), skill));
+        approvedSkills.forEach(skill -> availableSkills.put(skill.name(), skill));
+        List<SkillManifest> activeSkills = new SkillResolver(List.copyOf(availableSkills.values()))
+                .resolve(task).stream()
                 .filter(skill -> TrustedSkillPolicy.defaultPolicy().evaluate(skill).action()
                         == SkillTrustAction.ALLOW)
                 .toList();
@@ -60,6 +78,20 @@ public record HermesRuntimeOptions(
             );
         }
         return String.join("\n\n", sections);
+    }
+
+    private static String mergeMemory(String configured, List<String> learned) {
+        List<String> entries = new ArrayList<>();
+        if (!configured.isBlank()) {
+            entries.add(configured);
+        }
+        learned.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(entry -> !entry.isBlank())
+                .filter(entry -> !entries.contains(entry))
+                .forEach(entries::add);
+        return String.join("\n", entries);
     }
 
     private static void addSection(List<String> sections, String title, String content) {

@@ -41,3 +41,7 @@ jobs:
             fi
           done
           exit 1
+
+      - name: Build course checkpoints
+        shell: bash
+        run: bash checkpoints/verify.sh --compile-only

@@ -19,6 +19,7 @@
         <button type="button" class="nav-item" data-view="runtime">运行时配置</button>
         <button type="button" class="nav-item" data-view="run">运行任务</button>
         <button type="button" class="nav-item" data-view="trajectory">运行轨迹</button>
+        <button type="button" class="nav-item" data-view="operations">运行状态</button>
       </nav>
       <div class="sidebar-status">
         <span class="status-dot" id="sidebar-dot"></span>
@@ -212,6 +213,63 @@
             </div>
           </div>
           <div class="event-list empty" id="event-list">完成一次任务后，这里会出现真实运行轨迹。</div>
+        </section>
+      </section>
+
+      <section class="view hidden" id="operations-view">
+        <div class="metrics" id="operations-metrics">
+          <div><span>模型调用</span><strong>0</strong></div>
+          <div><span>输入 Token</span><strong>0</strong></div>
+          <div><span>输出 Token</span><strong>0</strong></div>
+          <div><span>持久化轨迹</span><strong>0</strong></div>
+        </div>
+
+        <div class="two-column operations-layout">
+          <section class="panel memory-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>已沉淀 Memory</h2>
+                <p>展示通过写入策略并已持久化的长期信息。</p>
+              </div>
+            </div>
+            <div class="memory-groups">
+              <section>
+                <h3>项目记忆</h3>
+                <div class="evidence-list empty" id="learned-project-memory">暂无自动沉淀内容。</div>
+              </section>
+              <section>
+                <h3>用户记忆</h3>
+                <div class="evidence-list empty" id="learned-user-memory">暂无自动沉淀内容。</div>
+              </section>
+            </div>
+          </section>
+
+          <section class="panel approval-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Skill 审批</h2>
+                <p>候选 Skill 只有经过明确决策后才会进入正式目录。</p>
+              </div>
+              <span class="state-label" id="pending-skill-count">0 个待处理</span>
+            </div>
+            <div class="approval-list empty" id="approval-list">当前没有待审批的 Skill。</div>
+          </section>
+        </div>
+
+        <section class="panel session-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Session Search</h2>
+              <p>检索 SQLite 中持久化的任务、工具请求和 Observation。</p>
+            </div>
+          </div>
+          <form class="search-form" id="session-search-form">
+            <label for="session-query">检索内容</label>
+            <input id="session-query" autocomplete="off" placeholder="例如：README 或工作区">
+            <button class="primary-button" type="submit">检索</button>
+            <span class="form-message" id="session-message" role="status"></span>
+          </form>
+          <div class="session-results empty" id="session-results">暂无检索结果。</div>
         </section>
       </section>
     </main>

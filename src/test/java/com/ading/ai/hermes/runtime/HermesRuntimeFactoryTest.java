@@ -8,10 +8,13 @@ import com.ading.ai.hermes.gateway.feishu.FeishuHandleResult;
 import com.ading.ai.hermes.gateway.local.FeishuLocalService;
 import com.ading.ai.hermes.model.ChatResponse;
 import com.ading.ai.hermes.model.ModelOptions;
+import com.ading.ai.hermes.model.Usage;
+import com.ading.ai.hermes.memory.MemoryTarget;
 import com.ading.ai.hermes.harness.HarnessRunRequest;
 import com.ading.ai.hermes.harness.HarnessRunStatus;
 import com.ading.ai.hermes.run.BusyInputMode;
 import com.ading.ai.hermes.run.RunStatus;
+import com.ading.ai.hermes.session.SessionId;
 import com.ading.ai.hermes.skill.SkillManifest;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -26,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class HermesRuntimeFactoryTest {
@@ -181,5 +186,128 @@ class HermesRuntimeFactoryTest {
             assertEquals(HarnessRunStatus.INTERRUPTED, result.status());
             assertEquals(RunStatus.STOPPED, assembly.runs().snapshot(result.runId()).status());
         }
+    }
+
+    @Test
+    void persistsRunEvidenceAndReusesApprovedMemoryAfterRuntimeRestart() {
+        HermesRuntimeAssembly first = HermesRuntimeFactory.create(
+                workspace,
+                request -> new ChatResponse(
+                        ModelTurn.finalAnswer("记住了"),
+                        new Usage(12, 4),
+                        "scripted-provider"
+                ),
+                new ModelOptions("test-model", 0.0),
+                reply -> { }
+        );
+
+        first.runtime().run(AgentRunRequest.from(
+                "web",
+                "reader-session",
+                "希望你先给结论，再解释原因",
+                IterationBudget.maxTurns(2),
+                Map.of()
+        ));
+
+        assertEquals(2, first.sessions().load(new SessionId("reader-session")).events().size());
+        assertEquals(1, first.trajectories().records().size());
+        assertEquals(1, first.metrics().calls().size());
+        assertEquals(12, first.metrics().calls().getFirst().usage().inputTokens());
+        assertEquals(
+                List.of("User prefers answers that give the conclusion first, then explain the reason."),
+                first.memories().entries(MemoryTarget.USER)
+        );
+
+        AtomicReference<String> restartedPrompt = new AtomicReference<>();
+        HermesRuntimeAssembly restarted = HermesRuntimeFactory.create(
+                workspace,
+                request -> {
+                    restartedPrompt.set(request.messages().getFirst().content());
+                    return ChatResponse.of(ModelTurn.finalAnswer("done"));
+                },
+                new ModelOptions("test-model", 0.0),
+                reply -> { }
+        );
+        restarted.runtime().run(AgentRunRequest.from(
+                "web",
+                "next-session",
+                "summarize README",
+                IterationBudget.maxTurns(1),
+                Map.of()
+        ));
+
+        assertTrue(restartedPrompt.get().contains(
+                "User prefers answers that give the conclusion first, then explain the reason."
+        ));
+        assertEquals(2, restarted.trajectories().records().size());
+    }
+
+    @Test
+    void appliesWorkspaceGuardrailsBeforeToolExecution() {
+        AtomicInteger calls = new AtomicInteger();
+        HermesRuntimeAssembly assembly = HermesRuntimeFactory.create(
+                workspace,
+                request -> {
+                    int call = calls.getAndIncrement();
+                    if (call == 0) {
+                        return ChatResponse.of(ModelTurn.toolRequest(new com.ading.ai.hermes.core.ToolRequest(
+                                "call-guard",
+                                "read_file",
+                                Map.of("path", "../secret.txt")
+                        )));
+                    }
+                    return ChatResponse.of(ModelTurn.finalAnswer("blocked safely"));
+                },
+                new ModelOptions("test-model", 0.0),
+                reply -> { }
+        );
+
+        var result = assembly.runtime().run(AgentRunRequest.from(
+                "web", "guarded-session", "inspect outside file",
+                IterationBudget.maxTurns(3), Map.of()
+        ));
+
+        assertTrue(result.state().events().stream()
+                .filter(event -> event.toolObservation() != null)
+                .anyMatch(event -> event.toolObservation().content().contains(
+                        "tool request blocked: path must stay inside the workspace"
+                )));
+    }
+
+    @Test
+    void recoversOneProviderFailureAndPersistsOnlyRedactedEvidence() {
+        AtomicInteger calls = new AtomicInteger();
+        HermesRuntimeAssembly assembly = HermesRuntimeFactory.create(
+                workspace,
+                request -> {
+                    if (calls.getAndIncrement() == 0) {
+                        throw new IllegalStateException("temporary provider failure token=sk-runtime-secret");
+                    }
+                    return ChatResponse.of(ModelTurn.finalAnswer("recovered"));
+                },
+                new ModelOptions("test-model", 0.0),
+                reply -> { }
+        );
+
+        var result = assembly.runtime().run(AgentRunRequest.from(
+                "web",
+                "recovery-session",
+                "retry this request with token sk-user-secret",
+                IterationBudget.maxTurns(3),
+                Map.of()
+        ));
+
+        assertEquals("recovered", result.finalAnswer());
+        assertTrue(result.state().events().stream()
+                .anyMatch(event -> event.kind() == com.ading.ai.hermes.core.AgentEventKind.ERROR_RECOVERED));
+        assertEquals(2, assembly.metrics().calls().size());
+        assertEquals(3, assembly.sessions().load(new SessionId("recovery-session")).events().size());
+        String persistedSession = assembly.sessions().load(new SessionId("recovery-session"))
+                .events().toString();
+        String persistedTrajectory = assembly.trajectories().records().toString();
+        assertFalse(persistedSession.contains("sk-user-secret"));
+        assertFalse(persistedSession.contains("sk-runtime-secret"));
+        assertFalse(persistedTrajectory.contains("sk-user-secret"));
+        assertFalse(persistedTrajectory.contains("sk-runtime-secret"));
     }
 }

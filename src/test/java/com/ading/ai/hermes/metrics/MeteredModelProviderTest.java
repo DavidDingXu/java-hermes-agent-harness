@@ -19,7 +19,7 @@ class MeteredModelProviderTest {
 
     @Test
     void recordsUsageProviderLatencyAndOutcomeWithoutChangingResponse() {
-        ChatResponse response = new ChatResponse(ModelTurn.finalAnswer("done"), new Usage(12, 5), "fake-provider");
+        ChatResponse response = new ChatResponse(ModelTurn.finalAnswer("done"), new Usage(12, 5), "test-provider");
         InMemoryModelMetrics metrics = new InMemoryModelMetrics();
         AtomicLong nanos = new AtomicLong();
         MeteredModelProvider provider = new MeteredModelProvider(
@@ -33,7 +33,7 @@ class MeteredModelProviderTest {
         assertSame(response, actual);
         assertEquals(1, metrics.calls().size());
         ModelCallMetric metric = metrics.calls().get(0);
-        assertEquals("fake-provider", metric.provider());
+        assertEquals("test-provider", metric.provider());
         assertEquals(new Usage(12, 5), metric.usage());
         assertEquals(Duration.ofMillis(25), metric.duration());
         assertEquals(ModelCallOutcome.SUCCESS, metric.outcome());

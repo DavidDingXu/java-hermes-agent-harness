@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WorkspaceFileToolsTest {
@@ -146,6 +147,48 @@ class WorkspaceFileToolsTest {
 
         assertEquals(false, observation.success());
         assertEquals("directory has more than 200 entries: .", observation.content());
+    }
+
+    @Test
+    void hidesAndRejectsRuntimeStateAndLocalCredentials() throws Exception {
+        Files.createDirectories(workspace.resolve(".hermes"));
+        Files.writeString(workspace.resolve(".hermes/sessions.db"), "runtime-state");
+        Files.createDirectories(workspace.resolve("config"));
+        Files.writeString(
+                workspace.resolve("config/hermes.local.properties"),
+                "openai.api-key=reader-secret"
+        );
+        Files.writeString(workspace.resolve("config/hermes.local.properties.example"), "example");
+        ToolRegistry registry = registry(new WorkspaceFileTools(workspace, 1000));
+
+        ToolObservation root = registry.execute(
+                new ToolRequest("list-1", "list_directory", Map.of("path", "."))
+        );
+        ToolObservation config = registry.execute(
+                new ToolRequest("list-2", "list_directory", Map.of("path", "config"))
+        );
+        ToolObservation state = registry.execute(
+                new ToolRequest("read-1", "read_file", Map.of("path", ".hermes/sessions.db"))
+        );
+        ToolObservation credentials = registry.execute(
+                new ToolRequest(
+                        "read-2",
+                        "read_file",
+                        Map.of("path", "config/hermes.local.properties")
+                )
+        );
+
+        assertTrue(root.success());
+        assertFalse(root.content().contains(".hermes"));
+        assertTrue(config.success());
+        assertEquals("hermes.local.properties.example", config.content());
+        assertEquals(false, state.success());
+        assertEquals("protected workspace path: .hermes/sessions.db", state.content());
+        assertEquals(false, credentials.success());
+        assertEquals(
+                "protected workspace path: config/hermes.local.properties",
+                credentials.content()
+        );
     }
 
     private ToolRegistry registry(WorkspaceFileTools tools) {

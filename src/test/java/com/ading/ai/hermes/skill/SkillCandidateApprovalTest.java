@@ -1,7 +1,9 @@
 package com.ading.ai.hermes.skill;
 
 import java.util.List;
+import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -9,6 +11,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SkillCandidateApprovalTest {
+
+    @TempDir
+    Path workspace;
 
     @Test
     void generatorIgnoresReviewWithoutReusableWorkflow() {
@@ -86,6 +91,30 @@ class SkillCandidateApprovalTest {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () -> flow.approve("missing"));
 
         assertEquals("pending skill candidate not found: missing", error.getMessage());
+    }
+
+    @Test
+    void persistsPendingDecisionAndApprovedSkillAcrossRestart() {
+        Path skillsDirectory = workspace.resolve(".hermes/skills");
+        SkillCandidate candidate = new SkillCandidateGenerator().generate(reusableReview()).orElseThrow();
+        SkillApprovalFlow first = new SkillApprovalFlow(skillsDirectory);
+
+        PendingSkillCandidate pending = first.submit(candidate);
+        SkillApprovalFlow restarted = new SkillApprovalFlow(skillsDirectory);
+
+        assertEquals(List.of(pending), restarted.pending());
+        SkillManifest approved = restarted.approve(pending.id());
+        assertTrue(restarted.pending().isEmpty());
+        assertEquals(approved.name(), new SkillLoader().loadAll(skillsDirectory).getFirst().name());
+
+        SkillApprovalFlow secondRestart = new SkillApprovalFlow(skillsDirectory);
+        assertTrue(secondRestart.pending().isEmpty());
+        assertEquals(List.of(approved.name()), secondRestart.approvedSkills().stream()
+                .map(SkillManifest::name)
+                .toList());
+
+        PendingSkillCandidate next = secondRestart.submit(candidate);
+        assertEquals("skill-candidate-2", next.id());
     }
 
     private TaskReview reusableReview() {

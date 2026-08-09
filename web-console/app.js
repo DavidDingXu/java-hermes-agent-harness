@@ -4,6 +4,8 @@ const state = {
   config: null,
   runtimeConfig: null,
   lastRun: null,
+  operations: null,
+  pendingSkills: [],
 };
 
 const viewCopy = {
@@ -22,6 +24,10 @@ const viewCopy = {
   trajectory: {
     title: "运行轨迹",
     description: "查看本次运行中的模型轮次、工具请求和 Observation。",
+  },
+  operations: {
+    title: "运行状态",
+    description: "查看持久化 Session、Memory、Skill 审批和模型调用证据。",
   },
 };
 
@@ -145,6 +151,58 @@ function eventDetail(event) {
   return event.text || "";
 }
 
+function appendInlineFormatting(parent, text) {
+  const token = /(\*\*[^*\n]+\*\*|`[^`\n]+`)/g;
+  let cursor = 0;
+  for (const match of text.matchAll(token)) {
+    parent.append(document.createTextNode(text.slice(cursor, match.index)));
+    const node = document.createElement(match[0].startsWith("**") ? "strong" : "code");
+    node.textContent = match[0].startsWith("**")
+      ? match[0].slice(2, -2)
+      : match[0].slice(1, -1);
+    parent.append(node);
+    cursor = match.index + match[0].length;
+  }
+  parent.append(document.createTextNode(text.slice(cursor)));
+}
+
+function renderModelAnswer(target, answer) {
+  target.replaceChildren();
+  let activeList = null;
+  let activeListKind = "";
+
+  for (const rawLine of answer.replaceAll("\r\n", "\n").split("\n")) {
+    const line = rawLine.trim();
+    if (!line) {
+      activeList = null;
+      activeListKind = "";
+      continue;
+    }
+
+    const bullet = line.match(/^[-*]\s+(.+)$/);
+    const numbered = line.match(/^\d+\.\s+(.+)$/);
+    if (bullet || numbered) {
+      const listKind = bullet ? "ul" : "ol";
+      if (!activeList || activeListKind !== listKind) {
+        activeList = document.createElement(listKind);
+        activeListKind = listKind;
+        target.append(activeList);
+      }
+      const item = document.createElement("li");
+      appendInlineFormatting(item, (bullet || numbered)[1]);
+      activeList.append(item);
+      continue;
+    }
+
+    activeList = null;
+    activeListKind = "";
+    const heading = line.match(/^#{1,3}\s+(.+)$/);
+    const block = document.createElement(heading ? "h3" : "p");
+    appendInlineFormatting(block, heading ? heading[1] : line);
+    target.append(block);
+  }
+}
+
 function renderRun() {
   const run = state.lastRun;
   const content = element("#result-content");
@@ -159,7 +217,7 @@ function renderRun() {
     return;
   }
 
-  content.textContent = run.finalAnswer || "模型没有返回文本。";
+  renderModelAnswer(content, run.finalAnswer || "模型没有返回文本。");
   content.classList.remove("empty");
   element("#result-meta").textContent = `${run.conversationId} · ${run.turnsUsed} 个模型轮次`;
   element("#run-state").textContent = run.finishReason;
@@ -192,6 +250,112 @@ function renderRun() {
   });
 }
 
+function renderEvidenceList(selector, entries, emptyText) {
+  const list = element(selector);
+  list.replaceChildren();
+  if (!entries.length) {
+    list.textContent = emptyText;
+    list.classList.add("empty");
+    return;
+  }
+  list.classList.remove("empty");
+  entries.forEach((entry) => {
+    const row = document.createElement("div");
+    row.textContent = entry;
+    list.append(row);
+  });
+}
+
+function renderOperations() {
+  const operations = state.operations || {
+    modelCalls: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    trajectoryRecords: 0,
+    projectMemory: [],
+    userMemory: [],
+  };
+  const values = [
+    operations.modelCalls,
+    operations.inputTokens,
+    operations.outputTokens,
+    operations.trajectoryRecords,
+  ];
+  elements("#operations-metrics strong").forEach((metric, index) => {
+    metric.textContent = values[index] ?? 0;
+  });
+  renderEvidenceList(
+    "#learned-project-memory",
+    operations.projectMemory || [],
+    "暂无自动沉淀内容。",
+  );
+  renderEvidenceList(
+    "#learned-user-memory",
+    operations.userMemory || [],
+    "暂无自动沉淀内容。",
+  );
+}
+
+function renderPendingSkills() {
+  const candidates = state.pendingSkills || [];
+  const list = element("#approval-list");
+  element("#pending-skill-count").textContent = `${candidates.length} 个待处理`;
+  list.replaceChildren();
+  if (!candidates.length) {
+    list.textContent = "当前没有待审批的 Skill。";
+    list.classList.add("empty");
+    return;
+  }
+  list.classList.remove("empty");
+  candidates.forEach((candidate) => {
+    const row = document.createElement("article");
+    row.className = "approval-row";
+    const content = document.createElement("div");
+    const title = document.createElement("strong");
+    const description = document.createElement("span");
+    const source = document.createElement("small");
+    title.textContent = candidate.name;
+    description.textContent = candidate.description;
+    source.textContent = `来源：${candidate.sourceId}`;
+    content.append(title, description, source);
+    const actions = document.createElement("div");
+    actions.className = "approval-actions";
+    const approve = document.createElement("button");
+    approve.type = "button";
+    approve.className = "small-button approve";
+    approve.dataset.skillId = candidate.id;
+    approve.dataset.action = "approve";
+    approve.textContent = "批准";
+    const reject = document.createElement("button");
+    reject.type = "button";
+    reject.className = "small-button";
+    reject.dataset.skillId = candidate.id;
+    reject.dataset.action = "reject";
+    reject.textContent = "拒绝";
+    actions.append(approve, reject);
+    row.append(content, actions);
+    list.append(row);
+  });
+}
+
+async function loadOperations() {
+  if (!state.configured) {
+    state.operations = null;
+    state.pendingSkills = [];
+    renderOperations();
+    renderPendingSkills();
+    return;
+  }
+  const [operations, pending] = await Promise.all([
+    api("/api/operations"),
+    api("/api/skills/pending"),
+  ]);
+  state.operations = operations;
+  state.pendingSkills = pending.candidates || [];
+  renderOperations();
+  renderPendingSkills();
+}
+
 async function loadConfiguration() {
   try {
     const config = await api("/api/config");
@@ -206,6 +370,7 @@ async function loadConfiguration() {
       state.lastRun = latestRun;
       renderRun();
     }
+    await loadOperations();
     setView(config.configured ? "run" : "config");
   } catch (error) {
     setMessage("#config-message", error.message, true);
@@ -237,6 +402,7 @@ element("#config-form").addEventListener("submit", async (event) => {
     state.runtimeConfig = await api("/api/runtime-config");
     renderConfiguration();
     renderRuntimeConfiguration();
+    await loadOperations();
     setMessage("#config-message", "配置已保存");
     setView("run");
   } catch (error) {
@@ -266,6 +432,7 @@ element("#runtime-form").addEventListener("submit", async (event) => {
     state.lastRun = null;
     renderRuntimeConfiguration();
     renderRun();
+    await loadOperations();
     setMessage("#runtime-message", "运行时配置已生效");
   } catch (error) {
     setMessage("#runtime-message", error.message, true);
@@ -297,6 +464,7 @@ element("#task-form").addEventListener("submit", async (event) => {
       }),
     });
     renderRun();
+    await loadOperations();
     setMessage("#run-message", "运行完成");
   } catch (error) {
     element("#run-state").textContent = "运行失败";
@@ -309,5 +477,59 @@ element("#task-form").addEventListener("submit", async (event) => {
   }
 });
 
+element("#session-search-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const query = element("#session-query").value.trim();
+  if (!query) {
+    setMessage("#session-message", "请输入检索内容", true);
+    return;
+  }
+  setMessage("#session-message", "检索中...");
+  try {
+    const result = await api(`/api/sessions/search?q=${encodeURIComponent(query)}`);
+    const list = element("#session-results");
+    list.replaceChildren();
+    if (!result.hits.length) {
+      list.textContent = "没有找到匹配的 Session 事件。";
+      list.classList.add("empty");
+    } else {
+      list.classList.remove("empty");
+      result.hits.forEach((hit) => {
+        const row = document.createElement("article");
+        row.className = "session-row";
+        const meta = document.createElement("strong");
+        const snippet = document.createElement("span");
+        meta.textContent = `${hit.sessionId} · ${hit.kind} · #${hit.eventIndex}`;
+        appendInlineFormatting(snippet, hit.snippet.replace(/\s+/g, " ").trim());
+        row.append(meta, snippet);
+        list.append(row);
+      });
+    }
+    setMessage("#session-message", `找到 ${result.hits.length} 条记录`);
+  } catch (error) {
+    setMessage("#session-message", error.message, true);
+  }
+});
+
+element("#approval-list").addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-skill-id]");
+  if (!button) {
+    return;
+  }
+  button.disabled = true;
+  try {
+    await api(`/api/skills/${encodeURIComponent(button.dataset.skillId)}/${button.dataset.action}`, {
+      method: "POST",
+      body: "{}",
+    });
+    await loadOperations();
+  } catch (error) {
+    button.disabled = false;
+    setMessage("#session-message", error.message, true);
+  }
+});
+
 renderRun();
+renderOperations();
+renderPendingSkills();
 loadConfiguration();

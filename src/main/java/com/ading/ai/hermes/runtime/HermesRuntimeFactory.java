@@ -6,12 +6,16 @@ import com.ading.ai.hermes.context.reference.ProcessGitContextReader;
 import com.ading.ai.hermes.context.reference.UrlContextFetcher;
 import com.ading.ai.hermes.control.FileEmergencyStop;
 import com.ading.ai.hermes.core.InterruptibleAgentLoop;
+import com.ading.ai.hermes.core.ErrorRecoveryPolicy;
 import com.ading.ai.hermes.gateway.feishu.FeishuEventHandler;
 import com.ading.ai.hermes.gateway.feishu.FeishuReplySink;
 import com.ading.ai.hermes.gateway.local.FeishuLocalService;
 import com.ading.ai.hermes.gateway.local.LocalServiceRegistry;
 import com.ading.ai.hermes.harness.AgentHarness;
+import com.ading.ai.hermes.harness.HarnessRuntime;
 import com.ading.ai.hermes.hook.RuntimeHookChain;
+import com.ading.ai.hermes.memory.MemoryTarget;
+import com.ading.ai.hermes.metrics.MeteredModelProvider;
 import com.ading.ai.hermes.model.ChatRequestFactory;
 import com.ading.ai.hermes.model.ModelOptions;
 import com.ading.ai.hermes.model.ModelProvider;
@@ -19,6 +23,8 @@ import com.ading.ai.hermes.model.ModelProviderDriver;
 import com.ading.ai.hermes.prompt.PromptBuilder;
 import com.ading.ai.hermes.prompt.PromptPolicy;
 import com.ading.ai.hermes.run.InMemoryRunCoordinator;
+import com.ading.ai.hermes.security.GuardedToolDriver;
+import com.ading.ai.hermes.security.ToolPolicy;
 import com.ading.ai.hermes.tool.ToolRegistry;
 import com.ading.ai.hermes.tool.ToolBatchRunner;
 import com.ading.ai.hermes.tools.basic.WorkspaceEditTool;
@@ -58,29 +64,49 @@ public final class HermesRuntimeFactory {
         Objects.requireNonNull(feishuReplySink, "feishuReplySink must not be null");
         Objects.requireNonNull(runtimeOptions, "runtimeOptions must not be null");
 
+        HermesRuntimeState runtimeState = new HermesRuntimeState(workspace);
         ToolRegistry tools = new WorkspaceFileTools(workspace, runtimeOptions.maxFileCharacters())
                 .registerInto(ToolRegistry.empty());
         if (runtimeOptions.fileEditingEnabled()) {
             tools = new WorkspaceEditTool(workspace).registerInto(tools);
         }
         ToolRegistry configuredTools = tools;
-        ChatRequestFactory requestFactory = state -> new PromptBuilder(
-                new PromptPolicy(runtimeOptions.systemPromptFor(state.events().getFirst().text())),
+        ChatRequestFactory requestFactory = agentState -> new PromptBuilder(
+                new PromptPolicy(runtimeOptions.systemPromptFor(
+                        agentState.events().getFirst().text(),
+                        runtimeState.memories().entries(MemoryTarget.MEMORY),
+                        runtimeState.memories().entries(MemoryTarget.USER),
+                        runtimeState.skillApprovals().approvedSkills()
+                )),
                 configuredTools.specs(),
                 modelOptions
-        ).create(state);
-        ModelProviderDriver modelDriver = new ModelProviderDriver(provider, requestFactory);
+        ).create(agentState);
+        ModelProviderDriver modelDriver = new ModelProviderDriver(
+                new MeteredModelProvider(provider, runtimeState.metrics()),
+                requestFactory
+        );
         ToolBatchRunner toolRunner = new ToolBatchRunner(
-                tools,
+                new GuardedToolDriver(
+                        tools,
+                        java.util.List.of(ToolPolicy.workspaceRelativePath("path"))
+                ),
                 4,
                 request -> request.name().equals("read_file")
                         || request.name().equals("list_directory")
         );
         InMemoryRunCoordinator runs = new InMemoryRunCoordinator();
+        HarnessRuntime instrumentedRuntime = (request, stopSignal) -> {
+            var result = new InterruptibleAgentLoop(
+                    modelDriver,
+                    toolRunner,
+                    stopSignal,
+                    ErrorRecoveryPolicy.maxRecoveries(2)
+            ).run(request);
+            runtimeState.recordRun(request, result);
+            return result;
+        };
         AgentHarness harness = new AgentHarness(
-                (request, stopSignal) -> new InterruptibleAgentLoop(
-                        modelDriver, toolRunner, stopSignal
-                ).run(request),
+                instrumentedRuntime,
                 new ContextReferenceResolver(
                         workspace,
                         runtimeOptions.maxReferencedContextCharacters(),
@@ -105,7 +131,8 @@ public final class HermesRuntimeFactory {
                 runs,
                 tools,
                 localServices,
-                emergencyStop
+                emergencyStop,
+                runtimeState
         );
     }
 }
