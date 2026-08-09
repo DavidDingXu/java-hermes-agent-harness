@@ -27,6 +27,7 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -53,6 +54,20 @@ public final class HermesWebServer implements AutoCloseable {
             Path defaultWorkspace,
             WebRuntimeConfig initialConfig
     ) {
+        return production(
+                address,
+                defaultWorkspace,
+                initialConfig,
+                WebRuntimeSettings.defaults(defaultWorkspace)
+        );
+    }
+
+    public static HermesWebServer production(
+            InetSocketAddress address,
+            Path defaultWorkspace,
+            WebRuntimeConfig initialConfig,
+            WebRuntimeSettings initialSettings
+    ) {
         RuntimeFactory factory = (config, settings) -> HermesRuntimeFactory.create(
                 config.workspace(),
                 new OpenAiCompatibleModelProvider(
@@ -62,13 +77,29 @@ public final class HermesWebServer implements AutoCloseable {
                 reply -> { },
                 settings.toRuntimeOptions()
         );
-        return new HermesWebServer(address, defaultWorkspace, initialConfig, factory);
+        return new HermesWebServer(address, defaultWorkspace, initialConfig, initialSettings, factory);
     }
 
     HermesWebServer(
             InetSocketAddress address,
             Path defaultWorkspace,
             WebRuntimeConfig initialConfig,
+            RuntimeFactory runtimeFactory
+    ) {
+        this(
+                address,
+                defaultWorkspace,
+                initialConfig,
+                WebRuntimeSettings.defaults(defaultWorkspace),
+                runtimeFactory
+        );
+    }
+
+    HermesWebServer(
+            InetSocketAddress address,
+            Path defaultWorkspace,
+            WebRuntimeConfig initialConfig,
+            WebRuntimeSettings initialSettings,
             RuntimeFactory runtimeFactory
     ) {
         try {
@@ -81,8 +112,10 @@ public final class HermesWebServer implements AutoCloseable {
             throw new IllegalArgumentException("default workspace must be an existing directory");
         }
         this.runtimeFactory = runtimeFactory;
-        WebRuntimeSettings initialSettings = WebRuntimeSettings.defaults(this.defaultWorkspace);
-        this.runtimeSettings.set(initialSettings);
+        this.runtimeSettings.set(Objects.requireNonNull(
+                initialSettings,
+                "initialSettings must not be null"
+        ));
         this.executor = Executors.newVirtualThreadPerTaskExecutor();
         this.server.setExecutor(executor);
         this.server.createContext("/", this::handle);
@@ -156,6 +189,12 @@ public final class HermesWebServer implements AutoCloseable {
                     ? defaultWorkspace.toString()
                     : current.config.workspace().toString());
             response.put("apiKeyConfigured", current != null);
+            response.put("configurationSource", current == null
+                    ? ""
+                    : current.config.source().displayName());
+            response.put("configurationNotices", current == null
+                    ? List.of()
+                    : current.config.notices());
             writeJson(exchange, 200, response);
             return;
         }
@@ -187,7 +226,9 @@ public final class HermesWebServer implements AutoCloseable {
                 "baseUrl", config.baseUrl(),
                 "model", config.model(),
                 "workspace", config.workspace().toString(),
-                "apiKeyConfigured", true
+                "apiKeyConfigured", true,
+                "configurationSource", config.source().displayName(),
+                "configurationNotices", config.notices()
         ));
     }
 
@@ -207,7 +248,8 @@ public final class HermesWebServer implements AutoCloseable {
                 request.userMemory,
                 hasText(request.skillsDirectory) ? Path.of(request.skillsDirectory) : null,
                 request.skillsEnabled == null || request.skillsEnabled,
-                request.fileEditingEnabled == null || request.fileEditingEnabled
+                request.fileEditingEnabled == null || request.fileEditingEnabled,
+                hasText(request.profile) ? request.profile : "default"
         );
         HermesRuntimeAssembly assembly = current == null
                 ? null
@@ -231,6 +273,7 @@ public final class HermesWebServer implements AutoCloseable {
                 .replace('\\', '/'));
         response.put("skillsEnabled", settings.skillsEnabled());
         response.put("fileEditingEnabled", settings.fileEditingEnabled());
+        response.put("profile", settings.profile());
         response.put("loadedSkills", settings.loadedSkills().stream()
                 .map(skill -> Map.of(
                         "name", skill.name(),
@@ -262,7 +305,15 @@ public final class HermesWebServer implements AutoCloseable {
             throw new IllegalArgumentException("maxTurns must be between 1 and 30");
         }
 
-        String conversationId = "web-" + UUID.randomUUID();
+        String conversationId = hasText(request.conversationId)
+                ? request.conversationId.trim()
+                : "web-" + UUID.randomUUID();
+        if (conversationId.length() > 128) {
+            throw new IllegalArgumentException("conversationId must be at most 128 characters");
+        }
+        if (hasControlCharacter(conversationId)) {
+            throw new IllegalArgumentException("conversationId must not contain control characters");
+        }
         AgentRunResult result = current.assembly.runtime().run(AgentRunRequest.from(
                 "web-console",
                 conversationId,
@@ -511,6 +562,10 @@ public final class HermesWebServer implements AutoCloseable {
         return value != null && !value.isBlank();
     }
 
+    private static boolean hasControlCharacter(String value) {
+        return value.chars().anyMatch(Character::isISOControl);
+    }
+
     private String queryParameter(HttpExchange exchange, String name) {
         String rawQuery = exchange.getRequestURI().getRawQuery();
         if (rawQuery == null || rawQuery.isBlank()) {
@@ -546,11 +601,12 @@ public final class HermesWebServer implements AutoCloseable {
             String userMemory,
             String skillsDirectory,
             Boolean skillsEnabled,
-            Boolean fileEditingEnabled
+            Boolean fileEditingEnabled,
+            String profile
     ) {
     }
 
-    private record RunRequest(String prompt, Integer maxTurns) {
+    private record RunRequest(String prompt, Integer maxTurns, String conversationId) {
     }
 
     private static final class HttpError extends RuntimeException {

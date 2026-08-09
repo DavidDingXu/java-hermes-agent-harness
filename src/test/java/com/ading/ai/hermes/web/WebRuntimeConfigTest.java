@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class WebRuntimeConfigTest {
@@ -34,5 +36,18 @@ class WebRuntimeConfigTest {
                 "hermes-model",
                 missing
         ));
+    }
+
+    @Test
+    void doesNotExposeTheApiKeyInItsStringRepresentation() {
+        WebRuntimeConfig config = new WebRuntimeConfig(
+                "https://models.example",
+                "reader-secret",
+                "hermes-model",
+                workspace
+        );
+
+        assertFalse(config.toString().contains("reader-secret"));
+        assertTrue(config.toString().contains("[REDACTED]"));
     }
 }

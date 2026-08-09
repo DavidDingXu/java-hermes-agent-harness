@@ -60,7 +60,7 @@
             <label>
               模型
               <input id="model" name="model" autocomplete="off"
-                     placeholder="gpt-5.6-luna" required>
+                     placeholder="支持 Tool Call 的模型名" required>
             </label>
             <label>
               API Key
@@ -76,6 +76,10 @@
             <div class="form-actions">
               <button class="primary-button" type="submit" id="save-config">保存配置</button>
               <span class="form-message" id="config-message" role="status"></span>
+            </div>
+            <div class="configuration-origin" aria-live="polite">
+              <span id="configuration-source">配置来源：尚未配置</span>
+              <span class="configuration-notice hidden" id="configuration-notices"></span>
             </div>
           </form>
 
@@ -129,6 +133,12 @@
               <input id="skills-directory" autocomplete="off">
               <small>目录必须位于工作区内，每个直接子目录包含一份 SKILL.md。</small>
             </label>
+            <label>
+              Runtime Profile
+              <input id="profile" autocomplete="off" value="default"
+                     pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,63}">
+              <small>不同 Profile 分别保存 Session、Memory、Skills 与运行轨迹。</small>
+            </label>
             <div class="toggle-group">
               <label class="toggle-row">
                 <input id="skills-enabled" type="checkbox" checked>
@@ -178,6 +188,12 @@
             <label class="turn-field">
               最大模型轮次
               <input id="max-turns" name="maxTurns" type="number" min="1" max="30" value="8">
+            </label>
+            <label>
+              会话 ID
+              <input id="conversation-id" name="conversationId" maxlength="128"
+                     autocomplete="off" placeholder="留空创建新会话；保留当前值可继续对话">
+              <small>一次运行后会自动回填；清空即可开始新会话。</small>
             </label>
             <div class="form-actions">
               <button class="primary-button" type="submit" id="run-task">运行 Hermes</button>

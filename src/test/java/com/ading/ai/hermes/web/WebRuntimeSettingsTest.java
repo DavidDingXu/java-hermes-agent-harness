@@ -22,6 +22,7 @@ class WebRuntimeSettingsTest {
         assertEquals(workspace.resolve(".hermes/skills").toAbsolutePath(), settings.skillsDirectory());
         assertTrue(settings.skillsEnabled());
         assertTrue(settings.fileEditingEnabled());
+        assertEquals("default", settings.profile());
         assertEquals(0, settings.loadedSkills().size());
     }
 

@@ -402,6 +402,19 @@ textarea {
   color: var(--danger);
 }
 
+.configuration-origin {
+  display: grid;
+  gap: 4px;
+  padding: 0 20px;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.configuration-notice {
+  color: var(--warning);
+}
+
 .security-panel {
   overflow: hidden;
 }
@@ -784,12 +797,16 @@ textarea {
 
   .nav {
     display: flex;
-    justify-content: center;
+    min-width: 0;
+    justify-content: flex-start;
     gap: 4px;
     padding: 0;
+    overflow-x: auto;
+    scrollbar-width: thin;
   }
 
   .nav-item {
+    flex: 0 0 auto;
     min-height: 36px;
     border-left: 0;
     border-bottom: 2px solid transparent;
@@ -834,12 +851,11 @@ textarea {
   .nav {
     grid-column: 1 / -1;
     grid-row: 2;
-    justify-content: stretch;
+    justify-content: flex-start;
   }
 
   .nav-item {
-    flex: 1;
-    min-width: 0;
+    flex: 0 0 auto;
     padding-right: 5px;
     padding-left: 5px;
     font-size: 13px;

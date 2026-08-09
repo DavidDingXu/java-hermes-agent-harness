@@ -6,6 +6,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
@@ -19,16 +21,26 @@ public final class LocalApplicationConfiguration {
             "openai.api-key", "OPENAI_API_KEY",
             "openai.model", "OPENAI_MODEL",
             "hermes.workspace", "HERMES_WORKSPACE",
-            "hermes.web.port", "HERMES_WEB_PORT"
+            "hermes.web.port", "HERMES_WEB_PORT",
+            "hermes.profile", "HERMES_PROFILE"
     );
 
     private LocalApplicationConfiguration() {
     }
 
     public static Map<String, String> load(Path launchDirectory, Map<String, String> environment) {
+        return loadResolved(launchDirectory, environment).values();
+    }
+
+    public static LoadedApplicationConfiguration loadResolved(
+            Path launchDirectory,
+            Map<String, String> environment
+    ) {
         Objects.requireNonNull(launchDirectory, "launchDirectory must not be null");
         Objects.requireNonNull(environment, "environment must not be null");
         Map<String, String> values = new LinkedHashMap<>();
+        Map<String, ConfigurationSource> sources = new LinkedHashMap<>();
+        LinkedHashSet<String> ignoredEnvironmentOverrides = new LinkedHashSet<>();
         Path configurationFile = launchDirectory.toAbsolutePath().normalize().resolve(DEFAULT_FILE);
         if (Files.isRegularFile(configurationFile)) {
             Properties properties = read(configurationFile);
@@ -36,15 +48,28 @@ public final class LocalApplicationConfiguration {
                 String value = properties.getProperty(propertyName);
                 if (hasText(value)) {
                     values.put(environmentName, value.trim());
+                    sources.put(environmentName, ConfigurationSource.LOCAL_FILE);
                 }
             });
         }
-        environment.forEach((name, value) -> {
+        PROPERTY_TO_ENVIRONMENT.values().forEach(name -> {
+            String value = environment.get(name);
             if (hasText(value)) {
+                if (sources.get(name) == ConfigurationSource.LOCAL_FILE) {
+                    if (!Objects.equals(values.get(name), value.trim())) {
+                        ignoredEnvironmentOverrides.add(name);
+                    }
+                    return;
+                }
                 values.put(name, value.trim());
+                sources.put(name, ConfigurationSource.ENVIRONMENT);
             }
         });
-        return Map.copyOf(values);
+        List<String> notices = ignoredEnvironmentOverrides.isEmpty()
+                ? List.of()
+                : List.of("本地配置文件优先，已忽略同名环境变量："
+                        + String.join("、", ignoredEnvironmentOverrides));
+        return new LoadedApplicationConfiguration(values, sources, notices);
     }
 
     private static Properties read(Path file) {

@@ -131,6 +131,13 @@ public final class AgentHarness {
                         Optional.of(agentResult), checkpoint, warnings);
             }
 
+            if (agentResult.finishReason() != FinishReason.FINAL_ANSWER) {
+                String reason = "agent runtime stopped with " + agentResult.finishReason().name();
+                runs.fail(run.runId(), reason);
+                return result(run.runId(), HarnessRunStatus.FAILED, reason,
+                        Optional.of(agentResult), checkpoint, warnings);
+            }
+
             String answer = afterRun.payload().getOrDefault("answer", agentResult.finalAnswer()).toString();
             runs.complete(run.runId(), answer);
             return result(run.runId(), HarnessRunStatus.COMPLETED, answer,

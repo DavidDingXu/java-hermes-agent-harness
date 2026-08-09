@@ -15,7 +15,13 @@ public final class AgentLoop {
     }
 
     public AgentRunResult run(AgentRunRequest request) {
-        TurnState turnState = TurnState.start(request.userMessage());
+        return run(request, new AgentState(java.util.List.of(), 0));
+    }
+
+    public AgentRunResult run(AgentRunRequest request, AgentState history) {
+        Objects.requireNonNull(request, "request must not be null");
+        Objects.requireNonNull(history, "history must not be null");
+        TurnState turnState = TurnState.resume(request.userMessage(), history);
         while (request.budget().allows(turnState.modelTurns())) {
             ModelTurn turn = modelDriver.next(turnState.toAgentState());
             turnState = turnState.recordModelTurn(turn);

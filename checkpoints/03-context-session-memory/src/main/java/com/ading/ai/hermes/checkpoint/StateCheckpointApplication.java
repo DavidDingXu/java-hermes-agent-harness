@@ -18,6 +18,7 @@ import com.ading.ai.hermes.memory.MemoryPolicy;
 import com.ading.ai.hermes.memory.MemoryStore;
 import com.ading.ai.hermes.memory.MemoryTarget;
 import com.ading.ai.hermes.session.SessionId;
+import com.ading.ai.hermes.session.SessionRestorer;
 import com.ading.ai.hermes.session.SqliteSessionStore;
 import com.ading.ai.hermes.skill.SkillLoader;
 import com.ading.ai.hermes.skill.SkillManifest;
@@ -38,8 +39,8 @@ public final class StateCheckpointApplication {
         ReaderModelRuntime readerModel = ReaderModelRuntime.fromLocalConfiguration();
         Path stateDirectory = Files.createTempDirectory("hermes-state-");
         try {
-            ContextCompactionResult compacted = compactContext();
             SqliteSessionStore sessions = persistSession(stateDirectory);
+            ContextCompactionResult compacted = compactContext(sessions);
             MemoryStore memories = persistMemory(stateDirectory);
             SkillManifest skill = loadSkill(stateDirectory);
             LearningGraphSnapshot graph = buildLearningGraph();
@@ -57,16 +58,26 @@ public final class StateCheckpointApplication {
                     你正在验证 Hermes 的状态层。下面的信息已通过 Memory 与 Skill 边界进入当前轮：
                     Memory: %s
                     Skill: %s
-                    请只依据这些信息回答，并使用简洁中文。
+                    Session 历史与压缩摘要会作为同一条模型调用的对话历史传入。
+                    请只依据这些信息回答，并使用简洁中文；回答必须明确包含 Java 21、pom.xml
+                    和“先运行聚焦验证”这三个证据。
                     """.formatted(memories.entries(MemoryTarget.MEMORY), skill.instructions());
             AgentRunResult liveResult = readerModel.run(
                     systemPrompt,
                     "这个项目使用什么 Java 版本？执行 Java 测试时应先做什么？",
                     request -> ToolObservation.failure(request.callId(), "本轮不需要工具"),
                     List.of(),
-                    4
+                    4,
+                    compacted.state()
             );
             require(liveResult.finishReason() == FinishReason.FINAL_ANSWER, "真实模型没有正常回答");
+            require(liveResult.state().events().stream().anyMatch(event ->
+                            event.kind() == com.ading.ai.hermes.core.AgentEventKind.CONTEXT_SUMMARY),
+                    "压缩后的 Session 历史没有进入真实模型链路");
+            require(liveResult.finalAnswer().contains("21")
+                            && liveResult.finalAnswer().contains("pom.xml")
+                            && liveResult.finalAnswer().contains("聚焦"),
+                    "真实模型没有同时使用 Session、Memory 与 Skill 证据");
 
             System.out.println("[阶段 03] Context、Session、Memory 与 Skill 运行成功");
             System.out.println("Context 事件: " + compacted.report().originalEvents()
@@ -82,28 +93,27 @@ public final class StateCheckpointApplication {
         }
     }
 
-    private static ContextCompactionResult compactContext() {
-        AgentState state = new AgentState(List.of(
-                AgentEvent.userMessage("检查项目配置并保留关键证据"),
-                AgentEvent.toolRequested(new ToolRequest(
-                        "call-1", "read_file", Map.of("path", "README.md")
-                )),
-                AgentEvent.toolObserved(ToolObservation.success(
-                        "call-1", "workspace configuration ".repeat(10)
-                )),
-                AgentEvent.userMessage("继续核对工作区与会话边界"),
-                AgentEvent.modelFinalAnswer("已完成核对")
-        ), 2);
+    private static ContextCompactionResult compactContext(SqliteSessionStore sessions) {
+        AgentState restored = new SessionRestorer()
+                .restore(sessions.load(new SessionId("reader-session")))
+                .state();
         return new ContextCompactor(new ContextCompactionPolicy(120, 1, 1, 180, 48))
-                .compact(state);
+                .compact(restored);
     }
 
     private static SqliteSessionStore persistSession(Path directory) {
         Path database = directory.resolve("sessions.db");
         SessionId sessionId = new SessionId("reader-session");
         SqliteSessionStore store = new SqliteSessionStore(database);
-        store.append(sessionId, AgentEvent.userMessage("检查工作区路径校验"));
-        store.append(sessionId, AgentEvent.modelFinalAnswer("工作区路径安全"));
+        store.append(sessionId, AgentEvent.userMessage("检查工作区路径校验和构建入口"));
+        store.append(sessionId, AgentEvent.toolRequested(new ToolRequest(
+                "call-session", "read_file", Map.of("path", "pom.xml")
+        )));
+        store.append(sessionId, AgentEvent.toolObserved(ToolObservation.success(
+                "call-session",
+                "已确认项目构建入口是 pom.xml。" + "workspace evidence ".repeat(12)
+        )));
+        store.append(sessionId, AgentEvent.modelFinalAnswer("工作区路径安全，构建入口是 pom.xml"));
         return new SqliteSessionStore(database);
     }
 

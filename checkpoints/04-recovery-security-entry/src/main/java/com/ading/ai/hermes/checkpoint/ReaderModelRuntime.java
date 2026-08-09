@@ -78,14 +78,25 @@ final class ReaderModelRuntime {
             List<ToolSpec> specs,
             int maxTurns
     ) {
+        return run(systemPrompt, task, tools, specs, maxTurns, new AgentState(List.of(), 0));
+    }
+
+    AgentRunResult run(
+            String systemPrompt,
+            String task,
+            ToolDriver tools,
+            List<ToolSpec> specs,
+            int maxTurns,
+            AgentState history
+    ) {
         ModelProviderDriver model = new ModelProviderDriver(
                 provider,
                 state -> new ChatRequest(toMessages(systemPrompt, state), specs, options)
         );
-        return new AgentLoop(model, tools).run(AgentRunRequest.start(
-                task,
-                IterationBudget.maxTurns(maxTurns)
-        ));
+        return new AgentLoop(model, tools).run(
+                AgentRunRequest.start(task, IterationBudget.maxTurns(maxTurns)),
+                history
+        );
     }
 
     ModelProvider provider() {

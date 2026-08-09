@@ -28,15 +28,21 @@ public final class InterruptibleAgentLoop {
     }
 
     public AgentRunResult run(AgentRunRequest request) {
+        return run(request, new AgentState(List.of(), 0));
+    }
+
+    public AgentRunResult run(AgentRunRequest request, AgentState history) {
         Objects.requireNonNull(request, "request must not be null");
-        List<AgentEvent> events = new ArrayList<>();
+        Objects.requireNonNull(history, "history must not be null");
+        List<AgentEvent> events = new ArrayList<>(history.events());
+        int historySize = events.size();
         events.add(AgentEvent.userMessage(request.userMessage()));
         int modelTurns = 0;
         int recoveries = 0;
 
         while (request.budget().allows(modelTurns)) {
             if (stopSignal.stopRequested()) {
-                return interrupted(events, modelTurns);
+                return interrupted(events, modelTurns, historySize);
             }
 
             ModelTurn turn;
@@ -47,7 +53,7 @@ public final class InterruptibleAgentLoop {
                     return new AgentRunResult(
                             FinishReason.ERROR_LIMIT,
                             "",
-                            new AgentState(events, modelTurns)
+                            currentState(events, modelTurns, historySize)
                     );
                 }
                 recoveries++;
@@ -55,42 +61,49 @@ public final class InterruptibleAgentLoop {
                 continue;
             }
             modelTurns++;
-            if (stopSignal.stopRequested()) {
-                return interrupted(events, modelTurns);
-            }
             if (turn.kind() == ModelTurnKind.FINAL_ANSWER) {
                 events.add(AgentEvent.modelFinalAnswer(turn.finalAnswer()));
+                if (stopSignal.stopRequested()) {
+                    return interrupted(events, modelTurns, historySize);
+                }
                 return new AgentRunResult(
                         FinishReason.FINAL_ANSWER,
                         turn.finalAnswer(),
-                        new AgentState(events, modelTurns)
+                        currentState(events, modelTurns, historySize)
                 );
             }
 
             events.addAll(turn.toolRequests().stream().map(AgentEvent::toolRequested).toList());
+            if (stopSignal.stopRequested()) {
+                return interrupted(events, modelTurns, historySize);
+            }
             List<ToolObservation> observations = toolDriver.executeBatch(turn.toolRequests());
             events.addAll(observations.stream().map(AgentEvent::toolObserved).toList());
 
             if (stopSignal.stopRequested()) {
-                return interrupted(events, modelTurns);
+                return interrupted(events, modelTurns, historySize);
             }
         }
 
         return new AgentRunResult(
                 FinishReason.ITERATION_LIMIT,
                 "",
-                new AgentState(events, modelTurns)
+                currentState(events, modelTurns, historySize)
         );
     }
 
-    private AgentRunResult interrupted(List<AgentEvent> events, int modelTurns) {
+    private AgentRunResult interrupted(List<AgentEvent> events, int modelTurns, int historySize) {
         List<AgentEvent> interruptedEvents = new ArrayList<>(events);
         interruptedEvents.add(AgentEvent.runInterrupted(stopSignal.reason()));
         return new AgentRunResult(
                 FinishReason.INTERRUPTED,
                 "",
-                new AgentState(interruptedEvents, modelTurns)
+                currentState(interruptedEvents, modelTurns, historySize)
         );
+    }
+
+    private AgentState currentState(List<AgentEvent> events, int modelTurns, int historySize) {
+        return new AgentState(events.subList(historySize, events.size()), modelTurns);
     }
 
     private String describe(RuntimeException error) {

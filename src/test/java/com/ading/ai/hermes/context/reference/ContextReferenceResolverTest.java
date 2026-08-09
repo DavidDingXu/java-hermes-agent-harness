@@ -42,6 +42,22 @@ class ContextReferenceResolverTest {
     }
 
     @Test
+    void stopsFileReferenceAtChinesePunctuation() throws Exception {
+        Files.writeString(workspace.resolve("README.md"), "reader context\n");
+        ContextReferenceResolver resolver = new ContextReferenceResolver(
+                workspace, 10_000, url -> "", reference -> ""
+        );
+
+        ContextReferenceResult result = resolver.resolve(
+                "检查 @file:README.md，然后按要求继续；不要忽略上下文。"
+        );
+
+        assertTrue(result.warnings().isEmpty());
+        assertEquals("README.md", result.references().getFirst().target());
+        assertTrue(result.attachedContext().contains("reader context"));
+    }
+
+    @Test
     void blocksFilesOutsideWorkspace() throws Exception {
         Path secret = workspace.getParent().resolve("secret.txt");
         Files.writeString(secret, "secret");

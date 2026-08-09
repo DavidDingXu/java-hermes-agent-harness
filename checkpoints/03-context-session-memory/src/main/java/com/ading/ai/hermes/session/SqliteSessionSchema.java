@@ -11,7 +11,7 @@ import java.sql.ResultSet;
 
 final class SqliteSessionSchema {
 
-    private static final int CURRENT_VERSION = 1;
+    private static final int CURRENT_VERSION = 3;
 
     private SqliteSessionSchema() {
     }
@@ -58,9 +58,20 @@ final class SqliteSessionSchema {
             statement.execute("""
                     CREATE TABLE IF NOT EXISTS sessions (
                         id TEXT PRIMARY KEY,
+                        source TEXT NOT NULL DEFAULT 'unknown',
+                        parent_session_id TEXT REFERENCES sessions(id),
+                        root_session_id TEXT,
+                        working_directory TEXT,
+                        model TEXT,
                         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
                     """);
+            addColumnIfMissing(connection, statement, "source", "TEXT NOT NULL DEFAULT 'unknown'");
+            addColumnIfMissing(connection, statement, "parent_session_id", "TEXT REFERENCES sessions(id)");
+            addColumnIfMissing(connection, statement, "root_session_id", "TEXT");
+            addColumnIfMissing(connection, statement, "working_directory", "TEXT");
+            addColumnIfMissing(connection, statement, "model", "TEXT");
+            statement.execute("UPDATE sessions SET root_session_id = id WHERE root_session_id IS NULL");
             statement.execute("""
                     CREATE TABLE IF NOT EXISTS messages (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -85,6 +96,26 @@ final class SqliteSessionSchema {
             }
         } catch (SQLException error) {
             throw new SessionStoreException("failed to initialize SQLite session store", error);
+        }
+    }
+
+    private static void addColumnIfMissing(
+            Connection connection,
+            Statement statement,
+            String column,
+            String declaration
+    ) throws SQLException {
+        boolean present = false;
+        try (ResultSet columns = connection.getMetaData().getColumns(
+                null,
+                null,
+                "sessions",
+                column
+        )) {
+            present = columns.next();
+        }
+        if (!present) {
+            statement.execute("ALTER TABLE sessions ADD COLUMN " + column + " " + declaration);
         }
     }
 }

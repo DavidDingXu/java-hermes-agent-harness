@@ -33,6 +33,8 @@ class PromptBuilderTest {
         assertTrue(request.messages().get(0).content().contains("You are a Hermes-style agent runtime"));
         assertEquals(ChatRole.USER, request.messages().get(1).role());
         assertEquals("inspect README", request.messages().get(1).content());
+        assertTrue(request.cache().stablePrefixCharacters() > 0);
+        assertTrue(!request.cache().stablePrefixFingerprint().isBlank());
     }
 
     @Test

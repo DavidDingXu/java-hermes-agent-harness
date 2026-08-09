@@ -125,4 +125,45 @@ class AgentHarnessTest {
         assertFalse(runtimeSession.get().isBlank());
         assertEquals(coordinatedSession, runtimeSession.get());
     }
+
+    @Test
+    void marksBudgetExhaustionAsFailedInsteadOfCompleted() {
+        assertFailedFinishReason(FinishReason.ITERATION_LIMIT);
+    }
+
+    @Test
+    void marksRecoveryExhaustionAsFailedInsteadOfCompleted() {
+        assertFailedFinishReason(FinishReason.ERROR_LIMIT);
+    }
+
+    private void assertFailedFinishReason(FinishReason finishReason) {
+        InMemoryRunCoordinator runs = new InMemoryRunCoordinator();
+        AgentHarness harness = new AgentHarness(
+                request -> new AgentRunResult(
+                        finishReason,
+                        "",
+                        AgentState.start(request.userMessage())
+                ),
+                new ContextReferenceResolver(workspace, 10_000, url -> "", git -> ""),
+                new FileWorkspaceCheckpointStore(workspace),
+                runs,
+                RuntimeHookChain.empty()
+        );
+
+        HarnessRunResult result = harness.run(new HarnessRunRequest(
+                AgentRunRequest.from(
+                        "cli",
+                        "failed-session-" + finishReason.name().toLowerCase(),
+                        "task",
+                        IterationBudget.maxTurns(1),
+                        Map.of()
+                ),
+                List.of()
+        ));
+
+        assertEquals(HarnessRunStatus.FAILED, result.status());
+        assertEquals(finishReason, result.agentResult().orElseThrow().finishReason());
+        assertEquals(RunStatus.FAILED, runs.snapshot(result.runId()).status());
+        assertTrue(result.message().contains(finishReason.name()));
+    }
 }

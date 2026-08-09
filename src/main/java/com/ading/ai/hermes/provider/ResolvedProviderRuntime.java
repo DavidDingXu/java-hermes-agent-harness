@@ -17,4 +17,13 @@ public record ResolvedProviderRuntime(
         apiKey = apiKey == null ? "" : apiKey;
         Objects.requireNonNull(source, "source must not be null");
     }
+
+    @Override
+    public String toString() {
+        return "ResolvedProviderRuntime[provider=" + provider
+                + ", model=" + model
+                + ", apiMode=" + apiMode
+                + ", baseUrl=" + baseUrl
+                + ", apiKey=[REDACTED], source=" + source + "]";
+    }
 }

@@ -41,7 +41,8 @@ public final class SessionSearchIndex {
 
     private String searchableText(AgentEvent event) {
         return switch (event.kind()) {
-            case USER_MESSAGE, CONTEXT_SUMMARY, ERROR_RECOVERED, RUN_INTERRUPTED, MODEL_FINAL_ANSWER -> event.text();
+            case USER_MESSAGE, CONTEXT_SUMMARY, ERROR_RECOVERED, COMPLETION_REJECTED,
+                    RUN_INTERRUPTED, MODEL_FINAL_ANSWER -> event.text();
             case TOOL_REQUESTED -> "tool "
                     + event.toolRequest().name()
                     + " "

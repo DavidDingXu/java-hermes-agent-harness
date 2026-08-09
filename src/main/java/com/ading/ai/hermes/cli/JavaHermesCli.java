@@ -91,7 +91,7 @@ public final class JavaHermesCli {
                         + event.toolObservation().callId()
                         + " success="
                         + event.toolObservation().success());
-                case ERROR_RECOVERED, RUN_INTERRUPTED -> out.println("runtimeEvent="
+                case ERROR_RECOVERED, COMPLETION_REJECTED, RUN_INTERRUPTED -> out.println("runtimeEvent="
                         + event.kind()
                         + " detail="
                         + REDACTOR.redact(event.text()));

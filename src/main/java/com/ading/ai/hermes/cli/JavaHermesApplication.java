@@ -5,6 +5,8 @@ import com.ading.ai.hermes.model.ModelOptions;
 import com.ading.ai.hermes.model.OpenAiCompatibleModelProvider;
 import com.ading.ai.hermes.model.OpenAiCompatibleOptions;
 import com.ading.ai.hermes.runtime.HermesRuntimeFactory;
+import com.ading.ai.hermes.runtime.HermesProfile;
+import com.ading.ai.hermes.runtime.HermesRuntimeOptions;
 import java.nio.file.Path;
 
 public final class JavaHermesApplication {
@@ -20,9 +22,16 @@ public final class JavaHermesApplication {
         int exitCode;
         try {
             Path launchDirectory = Path.of("").toAbsolutePath().normalize();
-            var configuration = LocalApplicationConfiguration.load(launchDirectory, System.getenv());
+            var loaded = LocalApplicationConfiguration.loadResolved(launchDirectory, System.getenv());
+            var configuration = loaded.values();
+            loaded.notices().forEach(System.err::println);
             var input = SystemPromptInput.standard();
-            var modelConfig = CliStartupConfiguration.resolveModel(configuration, input);
+            var modelConfig = CliStartupConfiguration.resolveModel(
+                    configuration,
+                    loaded.modelSource(),
+                    input
+            );
+            System.out.println("模型配置来源：" + modelConfig.source().displayName());
             String[] effectiveArgs = CliStartupConfiguration.addPromptWhenMissing(args, input);
             Path workspace = workspace(launchDirectory, configuration.get("HERMES_WORKSPACE"));
 
@@ -34,7 +43,10 @@ public final class JavaHermesApplication {
                     workspace,
                     provider,
                     new ModelOptions(modelConfig.model(), 0.0),
-                    reply -> System.out.println(reply.text())
+                    reply -> System.out.println(reply.text()),
+                    HermesRuntimeOptions.defaults().withProfile(new HermesProfile(
+                            configuration.getOrDefault("HERMES_PROFILE", "default")
+                    ))
             );
             exitCode = new JavaHermesCli(assembly.runtime(), System.out, System.err).run(effectiveArgs);
         } catch (IllegalArgumentException | IllegalStateException error) {

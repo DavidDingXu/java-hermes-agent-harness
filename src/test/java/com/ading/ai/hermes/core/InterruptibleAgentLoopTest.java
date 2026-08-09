@@ -73,6 +73,40 @@ class InterruptibleAgentLoopTest {
                 .toList());
     }
 
+    @Test
+    void preservesReturnedModelDecisionWhenStopArrivesDuringTheModelCall() {
+        ManualStopSignal stopSignal = new ManualStopSignal();
+        AtomicInteger toolCalls = new AtomicInteger();
+        ToolRequest request = new ToolRequest(
+                "call-1",
+                "edit_file",
+                Map.of("path", "README.md")
+        );
+        InterruptibleAgentLoop loop = new InterruptibleAgentLoop(
+                state -> {
+                    stopSignal.requestStop("user sent /stop");
+                    return ModelTurn.toolRequest(request);
+                },
+                toolRequest -> {
+                    toolCalls.incrementAndGet();
+                    return ToolObservation.success(toolRequest.callId(), "edited");
+                },
+                stopSignal
+        );
+
+        AgentRunResult result = loop.run(
+                AgentRunRequest.start("edit README", IterationBudget.maxTurns(2))
+        );
+
+        assertEquals(FinishReason.INTERRUPTED, result.finishReason());
+        assertEquals(0, toolCalls.get());
+        assertEquals(List.of(
+                AgentEvent.userMessage("edit README"),
+                AgentEvent.toolRequested(request),
+                AgentEvent.runInterrupted("user sent /stop")
+        ), result.state().events());
+    }
+
     private static ModelDriver scriptedModel(AtomicInteger modelCalls, ModelTurn... turns) {
         Queue<ModelTurn> queue = new ArrayDeque<>(List.of(turns));
         return state -> {

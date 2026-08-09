@@ -5,6 +5,7 @@ import com.ading.ai.hermes.core.AgentRunRequest;
 import com.ading.ai.hermes.core.AgentState;
 import com.ading.ai.hermes.core.FinishReason;
 import com.ading.ai.hermes.control.AdmissionDecision;
+import com.ading.ai.hermes.gateway.GatewayAccessPolicy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -40,7 +41,9 @@ class FeishuEventHandlerTest {
             capturedRequest.set(request);
             return new AgentRunResult(FinishReason.FINAL_ANSWER, "analysis finished", AgentState.start(request.userMessage()));
         }, replies::add);
-        FeishuEvent event = FeishuEvent.text("evt-1", "chat-7", "user-9", "inspect logs");
+        FeishuEvent event = FeishuEvent.text(
+                "evt-1", "group", "chat-7", "user-9", "inspect logs"
+        );
 
         FeishuHandleResult first = handler.handle(event);
         FeishuHandleResult duplicate = handler.handle(event);
@@ -49,7 +52,11 @@ class FeishuEventHandlerTest {
         assertEquals(FeishuHandleStatus.DUPLICATE, duplicate.status());
         assertEquals("inspect logs", capturedRequest.get().userMessage());
         assertEquals("feishu", capturedRequest.get().source());
-        assertEquals("chat-7", capturedRequest.get().conversationId());
+        assertEquals("agent:main:feishu:group:chat-7", capturedRequest.get().conversationId());
+        assertEquals(
+                "agent:main:feishu:group:chat-7",
+                capturedRequest.get().metadata().get("sessionKey")
+        );
         assertEquals("evt-1", capturedRequest.get().metadata().get("eventId"));
         assertEquals("user-9", capturedRequest.get().metadata().get("senderId"));
         assertEquals(List.of(new FeishuReply("chat-7", "analysis finished")), replies);
@@ -97,5 +104,27 @@ class FeishuEventHandlerTest {
         assertEquals("planned maintenance", result.error());
         assertEquals(0, calls.get());
         assertTrue(replies.isEmpty());
+    }
+
+    @Test
+    void rejectsAnUnauthorizedSenderBeforeCallingTheRuntime() {
+        AtomicInteger calls = new AtomicInteger();
+        FeishuEventHandler handler = new FeishuEventHandler(
+                request -> {
+                    calls.incrementAndGet();
+                    throw new AssertionError("runtime must not be called");
+                },
+                reply -> { },
+                () -> AdmissionDecision.allow(),
+                GatewayAccessPolicy.allowList(java.util.Set.of("trusted-user"))
+        );
+
+        FeishuHandleResult result = handler.handle(
+                FeishuEvent.text("evt-auth", "group", "chat-1", "unknown-user", "hello")
+        );
+
+        assertEquals(FeishuHandleStatus.REJECTED, result.status());
+        assertTrue(result.error().contains("未授权"));
+        assertEquals(0, calls.get());
     }
 }

@@ -6,10 +6,10 @@
 |---|---|---|---|
 | 完成 06 | `01-main-loop` | `com.ading.ai.hermes.checkpoint.MainLoopCheckpointApplication` | 真实模型决策、Reasoning、Tool Call 修复、工具 Observation 与最终回答 |
 | 完成 10 | `02-tools` | `com.ading.ai.hermes.checkpoint.ToolRuntimeCheckpointApplication` | 真实模型完成 `read_file -> edit_file -> FINAL_ANSWER`，并检查磁盘结果 |
-| 完成 18 | `03-context-session-memory` | `com.ading.ai.hermes.checkpoint.StateCheckpointApplication` | 真实模型同时使用 Context、SQLite Session、Memory 与 Skill |
-| 完成 24 | `04-recovery-security-entry` | `com.ading.ai.hermes.checkpoint.GovernedEntryCheckpointApplication` | 真实模型经同一 Runtime 被 Gateway、Cron 与 Subagent 调用 |
-| 完成 29 | `05-observability-learning` | `com.ading.ai.hermes.checkpoint.ObservabilityCheckpointApplication` | 真实模型调用产生 Metrics、Trajectory、Benchmark 与待审改进候选 |
-| 完成 35 | `06-advanced-harness` | `com.ading.ai.hermes.checkpoint.AdvancedHarnessCheckpointApplication` | 真实模型调用插件工具，并经过 Checkpoint、Run、Hooks 与 AgentHarness |
+| 完成 17 | `03-context-session-memory` | `com.ading.ai.hermes.checkpoint.StateCheckpointApplication` | 真实模型同时使用 Context、SQLite Session、Memory 与 Skill |
+| 完成 26 | `04-recovery-security-entry` | `com.ading.ai.hermes.checkpoint.GovernedEntryCheckpointApplication` | 真实模型经 Gateway、飞书、ACP、Cron 与 Subagent 进入同一 Runtime |
+| 完成 31 | `05-observability-learning` | `com.ading.ai.hermes.checkpoint.ObservabilityCheckpointApplication` | 真实模型调用产生 Metrics、Trajectory、Benchmark 与待审改进候选 |
+| 完成 37 | `06-advanced-harness` | `com.ading.ai.hermes.checkpoint.AdvancedHarnessCheckpointApplication` | 真实模型调用插件工具，并经过 Checkpoint、Run、Hooks 与 AgentHarness |
 
 第一次运行前，在项目根目录创建 `config/hermes.local.properties`：
 
@@ -21,4 +21,4 @@ openai.model=支持_Tool_Call_的模型名
 
 六个 Main 都只从这份本地私有文件读取配置，并且都会发起真实模型请求。配置缺失、仍是示例值、模型请求失败或阶段事实不成立时，程序会明确失败，不会退回脚本结果。文件已被 Git 忽略，同一份配置可供六个快照重复使用。
 
-完成 36 后，再转到项目根目录运行 `JavaHermesApplication.main()` 或 `HermesWebApplication.main()`。根目录的完整工程负责把六个阶段装配成 CLI、持久化运行状态和 Web 控制台；真实模型不是等到这一步才出现。
+完成 38 后，再转到项目根目录运行 `JavaHermesApplication.main()`、`HermesWebApplication.main()`，或由 Agent Client 启动 `AcpApplication.main()`。根目录的完整工程负责把六个阶段装配成 CLI、持久化运行状态、Web 控制台与标准协议入口；真实模型不是等到这一步才出现。

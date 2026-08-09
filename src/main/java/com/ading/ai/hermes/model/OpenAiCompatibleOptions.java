@@ -36,4 +36,10 @@ public record OpenAiCompatibleOptions(URI baseUrl, String apiKey, Duration timeo
         }
         return URI.create(normalized + "/v1/chat/completions");
     }
+
+    @Override
+    public String toString() {
+        return "OpenAiCompatibleOptions[baseUrl=" + baseUrl
+                + ", apiKey=[REDACTED], timeout=" + timeout + "]";
+    }
 }

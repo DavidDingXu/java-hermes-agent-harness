@@ -5,8 +5,6 @@ import com.ading.ai.hermes.context.reference.UrlContextFetcher;
 import com.ading.ai.hermes.core.AgentEventKind;
 import com.ading.ai.hermes.core.AgentRunRequest;
 import com.ading.ai.hermes.core.AgentRunResult;
-import com.ading.ai.hermes.core.AgentState;
-import com.ading.ai.hermes.core.FinishReason;
 import com.ading.ai.hermes.core.IterationBudget;
 import com.ading.ai.hermes.harness.AgentHarness;
 import com.ading.ai.hermes.harness.HarnessRunRequest;
@@ -50,12 +48,6 @@ public final class AdvancedHarnessCheckpointApplication {
             PluginHost plugins = installWorkspacePlugin(workspace);
             ToolsetSelection toolset = plugins.toolsets().select(Set.of("workspace"));
             ProgrammaticToolResult program = runProgram(toolset);
-            AgentRunResult liveResult = readerModel.run(
-                    "必须调用 read_marker 获取工作区标记，然后用一句中文说明读取结果。",
-                    toolset.registry(),
-                    toolset.specs(),
-                    4
-            );
 
             FileWorkspaceCheckpointStore checkpoints = new FileWorkspaceCheckpointStore(workspace);
             InMemoryRunCoordinator runs = new InMemoryRunCoordinator();
@@ -63,11 +55,16 @@ public final class AdvancedHarnessCheckpointApplication {
             AgentHarness harness = new AgentHarness(
                     (request, stopSignal) -> {
                         runtimeInput.set(request.userMessage());
-                        writeWorkspaceFile(workspace.resolve("README.md"), "after\n");
-                        return new AgentRunResult(
-                                FinishReason.FINAL_ANSWER,
-                                "Harness 总装配完成",
-                                AgentState.start(request.userMessage())
+                        return readerModel.run(
+                                """
+                                        你正在验证完整 Agent Harness。
+                                        必须先调用一次 read_marker，再调用一次 write_marker，content 必须是 after。
+                                        两个工具都有成功 Observation 后才能给出简洁中文最终回答，禁止跳过写入。
+                                        """,
+                                request.userMessage(),
+                                toolset.registry(),
+                                toolset.specs(),
+                                request.budget().maxTurns()
                         );
                     },
                     new ContextReferenceResolver(
@@ -85,22 +82,27 @@ public final class AdvancedHarnessCheckpointApplication {
                     AgentRunRequest.from(
                             "checkpoint",
                             "reader-session",
-                            "检查 @file:README.md",
-                            IterationBudget.maxTurns(4),
+                            "检查 @file:README.md，然后按要求把标记更新为 after",
+                            IterationBudget.maxTurns(6),
                             Map.of()
                     ),
                     List.of("README.md")
             ));
             String checkpointId = result.checkpoint().orElseThrow().id();
+            AgentRunResult liveResult = result.agentResult().orElseThrow();
 
             require(program.status() == ProgrammaticToolStatus.SUCCESS, "程序化工具链运行失败");
             require("before".equals(program.output()), "程序化工具没有读取预期内容");
-            require(liveResult.finishReason() == FinishReason.FINAL_ANSWER, "真实模型没有正常回答");
             require(liveResult.state().events().stream().anyMatch(event ->
                             event.kind() == AgentEventKind.TOOL_OBSERVED
                                     && event.toolObservation().success()
                                     && event.toolObservation().content().contains("before")),
                     "真实模型没有完成 read_marker 工具闭环");
+            require(liveResult.state().events().stream().anyMatch(event ->
+                            event.kind() == AgentEventKind.TOOL_OBSERVED
+                                    && event.toolObservation().success()
+                                    && event.toolObservation().content().contains("written: after")),
+                    "真实模型没有通过 write_marker 修改工作区");
             require(result.status() == HarnessRunStatus.COMPLETED, "AgentHarness 没有正常完成");
             require(runtimeInput.get().contains("--- Attached Context ---"), "Context 引用没有装配");
             require(runtimeInput.get().contains("[plugin hook]"), "Plugin Hook 没有生效");
@@ -143,8 +145,27 @@ public final class AdvancedHarnessCheckpointApplication {
                     }
                 }
         );
+        ToolDefinition writeMarker = new ToolDefinition(
+                "write_marker",
+                "Write a new checkpoint marker after read_marker succeeds",
+                ToolSchema.object().requiredString("content"),
+                request -> {
+                    String content = request.arguments().get("content").toString();
+                    try {
+                        Files.writeString(
+                                workspace.resolve("README.md"),
+                                content + "\n",
+                                StandardCharsets.UTF_8
+                        );
+                        return ToolResult.success(request.callId(), "written: " + content);
+                    } catch (Exception error) {
+                        return ToolResult.failure(request.callId(), error.getMessage());
+                    }
+                }
+        );
         return PluginHost.empty().install(context -> {
             context.registerTool("workspace", readMarker);
+            context.registerTool("workspace", writeMarker);
             context.registerHook(
                     "reader-context-marker",
                     RuntimeHookPoint.BEFORE_RUN,
@@ -168,14 +189,6 @@ public final class AdvancedHarnessCheckpointApplication {
                 1,
                 Duration.ofSeconds(2)
         ));
-    }
-
-    private static void writeWorkspaceFile(Path path, String content) {
-        try {
-            Files.writeString(path, content, StandardCharsets.UTF_8);
-        } catch (Exception error) {
-            throw new IllegalStateException("failed to update checkpoint workspace", error);
-        }
     }
 
     private static void deleteRecursively(Path root) throws Exception {

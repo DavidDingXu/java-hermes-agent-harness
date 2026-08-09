@@ -27,9 +27,16 @@ public record TurnState(
     }
 
     public static TurnState start(String userMessage) {
+        return resume(userMessage, new AgentState(List.of(), 0));
+    }
+
+    public static TurnState resume(String userMessage, AgentState history) {
+        Objects.requireNonNull(history, "history must not be null");
+        List<AgentEvent> events = new ArrayList<>(history.events());
+        events.add(AgentEvent.userMessage(userMessage));
         return new TurnState(
                 userMessage,
-                List.of(AgentEvent.userMessage(userMessage)),
+                events,
                 0,
                 List.of(),
                 null,

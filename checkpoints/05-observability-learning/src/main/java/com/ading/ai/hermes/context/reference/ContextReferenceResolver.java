@@ -172,7 +172,18 @@ public final class ContextReferenceResolver {
     }
 
     private static String trimTrailingPunctuation(String value) {
-        return value.replaceFirst("[,.;!?]+$", "");
+        int chineseDelimiter = firstIndexOf(value, "，。；！？、）》」】）");
+        String bounded = chineseDelimiter < 0 ? value : value.substring(0, chineseDelimiter);
+        return bounded.replaceFirst("[,.;!?]+$", "");
+    }
+
+    private static int firstIndexOf(String value, String delimiters) {
+        for (int index = 0; index < value.length(); index++) {
+            if (delimiters.indexOf(value.charAt(index)) >= 0) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     private static String portable(Path path) {

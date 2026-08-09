@@ -1,5 +1,6 @@
 package com.ading.ai.hermes.cli;
 
+import com.ading.ai.hermes.config.ConfigurationSource;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
@@ -9,6 +10,8 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class CliStartupConfigurationTest {
@@ -26,6 +29,7 @@ class CliStartupConfigurationTest {
         assertEquals("https://models.example", model.baseUrl());
         assertEquals("secret", model.apiKey());
         assertEquals("hermes-model", model.model());
+        assertEquals(ConfigurationSource.ENVIRONMENT, model.source());
         assertEquals(List.of(), input.prompts);
     }
 
@@ -39,8 +43,22 @@ class CliStartupConfigurationTest {
 
         assertEquals("https://models.example", model.baseUrl());
         assertEquals("secret", model.apiKey());
+        assertEquals(ConfigurationSource.MIXED, model.source());
         assertEquals(List.of("Base URL: ", "API Key: "), input.prompts);
         assertEquals(List.of(false, true), input.secretPrompts);
+    }
+
+    @Test
+    void reportsInteractiveSourceWhenAllModelValuesAreEnteredAtStartup() {
+        RecordingInput input = new RecordingInput(
+                "https://models.example",
+                "secret",
+                "hermes-model"
+        );
+
+        var model = CliStartupConfiguration.resolveModel(Map.of(), input);
+
+        assertEquals(ConfigurationSource.INTERACTIVE, model.source());
     }
 
     @Test
@@ -68,6 +86,18 @@ class CliStartupConfigurationTest {
                 IllegalArgumentException.class,
                 () -> CliStartupConfiguration.addPromptWhenMissing(new String[0], blankInput)
         );
+    }
+
+    @Test
+    void doesNotExposeTheApiKeyInItsStringRepresentation() {
+        var model = CliStartupConfiguration.resolveModel(Map.of(
+                "OPENAI_BASE_URL", "https://models.example",
+                "OPENAI_API_KEY", "reader-secret",
+                "OPENAI_MODEL", "hermes-model"
+        ), new RecordingInput());
+
+        assertFalse(model.toString().contains("reader-secret"));
+        assertTrue(model.toString().contains("[REDACTED]"));
     }
 
     private static final class RecordingInput implements CliStartupConfiguration.PromptInput {

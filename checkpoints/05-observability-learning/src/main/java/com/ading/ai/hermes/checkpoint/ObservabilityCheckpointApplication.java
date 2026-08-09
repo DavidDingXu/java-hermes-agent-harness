@@ -37,6 +37,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class ObservabilityCheckpointApplication {
 
@@ -47,13 +48,13 @@ public final class ObservabilityCheckpointApplication {
         ReaderModelRuntime readerModel = ReaderModelRuntime.fromLocalConfiguration();
         Path stateDirectory = Files.createTempDirectory("hermes-observability-");
         try {
-            OnlineRun onlineRun = runOnline(readerModel);
-            InMemoryModelMetrics metrics = onlineRun.metrics();
-            AgentRunResult runResult = onlineRun.result();
-            TrajectoryRecord trajectory = recordTrajectory(runResult);
-            BenchmarkReport benchmark = runBenchmark(runResult);
-            SelfImprovementResult improvement = reviewForImprovement(stateDirectory, trajectory);
             ContextReferenceResult reference = resolveContextReference(stateDirectory);
+            OnlineBenchmark onlineBenchmark = runMeasuredBenchmark(readerModel, reference);
+            InMemoryModelMetrics metrics = onlineBenchmark.metrics();
+            AgentRunResult runResult = onlineBenchmark.result();
+            TrajectoryRecord trajectory = recordTrajectory(runResult);
+            BenchmarkReport benchmark = onlineBenchmark.report();
+            SelfImprovementResult improvement = reviewForImprovement(stateDirectory, trajectory);
 
             require(!metrics.calls().isEmpty(), "真实模型指标没有记录");
             require(runResult.state().events().stream().anyMatch(event ->
@@ -92,7 +93,10 @@ public final class ObservabilityCheckpointApplication {
         }
     }
 
-    private static OnlineRun runOnline(ReaderModelRuntime readerModel) {
+    private static OnlineBenchmark runMeasuredBenchmark(
+            ReaderModelRuntime readerModel,
+            ContextReferenceResult reference
+    ) {
         InMemoryModelMetrics metrics = new InMemoryModelMetrics();
         MeteredModelProvider meteredProvider = new MeteredModelProvider(
                 readerModel.provider(),
@@ -110,25 +114,45 @@ public final class ObservabilityCheckpointApplication {
                 "只在第一轮调用一次，读取当前阶段的运行时标记；看到结果后禁止重复调用。",
                 Map.of()
         );
-        AgentRunResult result = readerModel.runRecovering(
-                failOnceThenUseRealModel,
-                """
-                        你正在验证 Hermes 的观测与学习链路。
-                        第一轮必须且只能调用一次 inspect_runtime。
-                        一旦上下文已经有 inspect_runtime 的 Observation，立即停止调用工具并给出最终回答。
-                        最终回答必须使用 Observation 中的 Maven 事实，不得声称没有看到 Observation；
-                        再用简洁中文说明 Trajectory 与 Metrics 的区别。
-                        """,
-                "我希望你先给结论，再解释原因。请检查当前运行时，并说明 Trajectory 与 Metrics 的区别。",
-                request -> ToolObservation.success(
-                        request.callId(),
-                        "当前项目使用 Maven；这是 inspect_runtime 返回的 Observation。"
-                ),
-                List.of(inspectRuntime),
-                6
+        AtomicReference<AgentRunResult> captured = new AtomicReference<>();
+        var measuredRuntime = (com.ading.ai.hermes.core.AgentRuntime) request -> {
+            AgentRunResult result = readerModel.runRecovering(
+                    failOnceThenUseRealModel,
+                    """
+                            你正在验证 Hermes 的观测、评测与学习链路。
+                            第一轮必须且只能调用一次 inspect_runtime。
+                            一旦上下文已经有 inspect_runtime 的 Observation，立即停止调用工具并给出最终回答。
+                            最终回答必须同时使用文件引用与 Observation 中的 Maven 事实；
+                            再用简洁中文说明 Trajectory 与 Metrics 的区别。
+                            """,
+                    request.userMessage(),
+                    toolRequest -> ToolObservation.success(
+                            toolRequest.callId(),
+                            "当前项目使用 Maven；这是 inspect_runtime 返回的 Observation。"
+                    ),
+                    List.of(inspectRuntime),
+                    request.budget().maxTurns()
+            );
+            captured.set(result);
+            return result;
+        };
+        BenchmarkCase benchmarkCase = new BenchmarkCase(
+                "complete-observed-task",
+                reference.resolvedMessage()
+                        + "\n希望你先给结论，再解释原因。请检查当前运行时，并说明 Trajectory 与 Metrics 的区别。",
+                6,
+                10,
+                result -> result.finishReason() == FinishReason.FINAL_ANSWER
+                        && result.state().events().stream().anyMatch(event ->
+                        event.kind() == com.ading.ai.hermes.core.AgentEventKind.TOOL_OBSERVED)
+                        ? BenchmarkEvidence.pass(10, "真实模型完成工具闭环并给出最终回答")
+                        : BenchmarkEvidence.fail("真实运行没有完成工具闭环")
         );
+        BenchmarkReport report = new BenchmarkRunner(measuredRuntime).run(List.of(benchmarkCase));
+        AgentRunResult result = captured.get();
+        require(result != null, "Benchmark 没有调用真实 Runtime");
         require(result.finishReason() == FinishReason.FINAL_ANSWER, "真实模型没有正常完成观测任务");
-        return new OnlineRun(metrics, result);
+        return new OnlineBenchmark(metrics, result, report);
     }
 
     private static TrajectoryRecord recordTrajectory(AgentRunResult runResult) {
@@ -145,19 +169,6 @@ public final class ObservabilityCheckpointApplication {
         require("[REDACTED]".equals(redacted.get("apiKey")), "顶层敏感字段没有脱敏");
         require("[REDACTED]".equals(((Map<?, ?>) redacted.get("headers")).get("Authorization")),
                 "嵌套敏感字段没有脱敏");
-    }
-
-    private static BenchmarkReport runBenchmark(AgentRunResult runResult) {
-        BenchmarkCase benchmarkCase = new BenchmarkCase(
-                "complete-task",
-                "完成一次工具闭环",
-                4,
-                10,
-                result -> result.finishReason() == FinishReason.FINAL_ANSWER
-                        ? BenchmarkEvidence.pass(10, "有最终回答和完成原因")
-                        : BenchmarkEvidence.fail("运行没有正常完成")
-        );
-        return new BenchmarkRunner(request -> runResult).run(List.of(benchmarkCase));
     }
 
     private static SelfImprovementResult reviewForImprovement(
@@ -210,6 +221,10 @@ public final class ObservabilityCheckpointApplication {
         }
     }
 
-    private record OnlineRun(InMemoryModelMetrics metrics, AgentRunResult result) {
+    private record OnlineBenchmark(
+            InMemoryModelMetrics metrics,
+            AgentRunResult result,
+            BenchmarkReport report
+    ) {
     }
 }

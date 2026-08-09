@@ -1,6 +1,9 @@
 package com.ading.ai.hermes.runtime;
 
 import com.ading.ai.hermes.prompt.PromptPolicy;
+import com.ading.ai.hermes.prompt.PromptPlan;
+import com.ading.ai.hermes.prompt.PromptSection;
+import com.ading.ai.hermes.prompt.PromptTier;
 import com.ading.ai.hermes.skill.SkillManifest;
 import com.ading.ai.hermes.skill.SkillResolver;
 import com.ading.ai.hermes.skill.SkillTrustAction;
@@ -18,7 +21,8 @@ public record HermesRuntimeOptions(
         String systemPromptAppendix,
         String projectMemory,
         String userMemory,
-        List<SkillManifest> skills
+        List<SkillManifest> skills,
+        HermesProfile profile
 ) {
 
     private static final int MAX_CONFIGURED_TEXT_CHARACTERS = 40_000;
@@ -34,10 +38,54 @@ public record HermesRuntimeOptions(
         projectMemory = normalizeText(projectMemory, "projectMemory");
         userMemory = normalizeText(userMemory, "userMemory");
         skills = List.copyOf(Objects.requireNonNull(skills, "skills must not be null"));
+        profile = Objects.requireNonNull(profile, "profile must not be null");
+    }
+
+    public HermesRuntimeOptions(
+            int maxFileCharacters,
+            int maxReferencedContextCharacters,
+            boolean fileEditingEnabled,
+            String systemPromptAppendix,
+            String projectMemory,
+            String userMemory,
+            List<SkillManifest> skills
+    ) {
+        this(
+                maxFileCharacters,
+                maxReferencedContextCharacters,
+                fileEditingEnabled,
+                systemPromptAppendix,
+                projectMemory,
+                userMemory,
+                skills,
+                HermesProfile.defaultProfile()
+        );
     }
 
     public static HermesRuntimeOptions defaults() {
-        return new HermesRuntimeOptions(40_000, 100_000, true, "", "", "", List.of());
+        return new HermesRuntimeOptions(
+                40_000,
+                100_000,
+                true,
+                "",
+                "",
+                "",
+                List.of(),
+                HermesProfile.defaultProfile()
+        );
+    }
+
+    public HermesRuntimeOptions withProfile(HermesProfile selectedProfile) {
+        return new HermesRuntimeOptions(
+                maxFileCharacters,
+                maxReferencedContextCharacters,
+                fileEditingEnabled,
+                systemPromptAppendix,
+                projectMemory,
+                userMemory,
+                skills,
+                selectedProfile
+        );
     }
 
     public String systemPromptFor(String task) {
@@ -50,17 +98,32 @@ public record HermesRuntimeOptions(
             List<String> learnedUserMemory,
             List<SkillManifest> approvedSkills
     ) {
+        return promptPlanFor(
+                task,
+                learnedProjectMemory,
+                learnedUserMemory,
+                approvedSkills
+        ).systemPrompt();
+    }
+
+    public PromptPlan promptPlanFor(
+            String task,
+            List<String> learnedProjectMemory,
+            List<String> learnedUserMemory,
+            List<SkillManifest> approvedSkills
+    ) {
         if (task == null || task.isBlank()) {
             throw new IllegalArgumentException("task must not be blank");
         }
         Objects.requireNonNull(learnedProjectMemory, "learnedProjectMemory must not be null");
         Objects.requireNonNull(learnedUserMemory, "learnedUserMemory must not be null");
         Objects.requireNonNull(approvedSkills, "approvedSkills must not be null");
-        List<String> sections = new ArrayList<>();
-        sections.add(PromptPolicy.hermesDefault().systemPrompt());
-        addSection(sections, "Additional runtime rules", systemPromptAppendix);
-        addSection(sections, "Project memory", mergeMemory(projectMemory, learnedProjectMemory));
-        addSection(sections, "User memory", mergeMemory(userMemory, learnedUserMemory));
+        List<PromptSection> sections = new ArrayList<>();
+        sections.add(new PromptSection(
+                PromptTier.STABLE,
+                "Runtime policy",
+                PromptPolicy.hermesDefault().systemPrompt()
+        ));
 
         Map<String, SkillManifest> availableSkills = new LinkedHashMap<>();
         skills.forEach(skill -> availableSkills.put(skill.name(), skill));
@@ -71,13 +134,46 @@ public record HermesRuntimeOptions(
                         == SkillTrustAction.ALLOW)
                 .toList();
         for (SkillManifest skill : activeSkills) {
-            addSection(
-                    sections,
+            sections.add(new PromptSection(
+                    PromptTier.STABLE,
                     "Active skill: " + skill.name() + " (version " + skill.version() + ")",
                     skill.instructions()
-            );
+            ));
         }
-        return String.join("\n\n", sections);
+        addSection(
+                sections,
+                PromptTier.CONTEXT,
+                "Additional runtime rules",
+                systemPromptAppendix
+        );
+        addSection(
+                sections,
+                PromptTier.VOLATILE,
+                "Project memory",
+                mergeMemory(projectMemory, learnedProjectMemory)
+        );
+        addSection(
+                sections,
+                PromptTier.VOLATILE,
+                "User memory",
+                mergeMemory(userMemory, learnedUserMemory)
+        );
+        return new PromptPlan(sections);
+    }
+
+    private static void addSection(
+            List<PromptSection> sections,
+            PromptTier tier,
+            String title,
+            String content
+    ) {
+        if (!content.isBlank()) {
+            sections.add(new PromptSection(
+                    tier,
+                    title,
+                    content
+            ));
+        }
     }
 
     private static String mergeMemory(String configured, List<String> learned) {
@@ -92,12 +188,6 @@ public record HermesRuntimeOptions(
                 .filter(entry -> !entries.contains(entry))
                 .forEach(entries::add);
         return String.join("\n", entries);
-    }
-
-    private static void addSection(List<String> sections, String title, String content) {
-        if (!content.isBlank()) {
-            sections.add("## " + title + "\n" + content);
-        }
     }
 
     private static String normalizeText(String value, String name) {

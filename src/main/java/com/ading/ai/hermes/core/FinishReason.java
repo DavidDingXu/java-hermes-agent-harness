@@ -4,5 +4,6 @@ public enum FinishReason {
     FINAL_ANSWER,
     ITERATION_LIMIT,
     ERROR_LIMIT,
+    VERIFICATION_FAILED,
     INTERRUPTED
 }

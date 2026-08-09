@@ -7,6 +7,8 @@ import java.nio.file.Path;
 import java.sql.DriverManager;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -63,7 +65,7 @@ class SqliteSessionStoreTest {
         try (var connection = DriverManager.getConnection("jdbc:sqlite:" + database);
              var statement = connection.createStatement()) {
             statement.execute("CREATE TABLE schema_version (version INTEGER NOT NULL)");
-            statement.execute("INSERT INTO schema_version(version) VALUES (2)");
+            statement.execute("INSERT INTO schema_version(version) VALUES (4)");
         }
 
         SessionStoreException error = assertThrows(
@@ -71,6 +73,74 @@ class SqliteSessionStoreTest {
                 () -> new SqliteSessionStore(database)
         );
 
-        assertEquals("SQLite schema version 2 is newer than supported version 1", error.getMessage());
+        assertEquals("SQLite schema version 4 is newer than supported version 3", error.getMessage());
+    }
+
+    @Test
+    void recordsParentAndRootWhenAFreshSessionForks() {
+        SqliteSessionStore store = new SqliteSessionStore(directory.resolve("lineage.db"));
+        SessionId root = new SessionId("root-session");
+        SessionId child = new SessionId("child-session");
+        store.create(root, "cli", null);
+        store.append(root, AgentEvent.userMessage("root context"));
+
+        store.fork(root, child, "acp");
+
+        SessionLineage lineage = store.lineage(child).orElseThrow();
+        assertEquals(root, lineage.parentSessionId().orElseThrow());
+        assertEquals(root, lineage.rootSessionId());
+        assertEquals("acp", lineage.source());
+        assertEquals(List.of(AgentEvent.userMessage("root context")), store.load(child).events());
+    }
+
+    @Test
+    void persistsWorkingDirectoryAndModelAndCarriesThemIntoAFork() {
+        Path database = directory.resolve("session-config.db");
+        Path workspace = directory.resolve("workspace");
+        SessionId root = new SessionId("configured-root");
+        SessionId child = new SessionId("configured-child");
+        SqliteSessionStore store = new SqliteSessionStore(database);
+        store.create(root, "acp", null);
+        store.configure(root, workspace, "gpt-reader");
+
+        store.fork(root, child, "acp");
+
+        SqliteSessionStore reopened = new SqliteSessionStore(database);
+        SessionConfiguration rootConfig = reopened.configuration(root).orElseThrow();
+        SessionConfiguration childConfig = reopened.configuration(child).orElseThrow();
+        assertEquals(workspace.toAbsolutePath().normalize(), rootConfig.workingDirectory());
+        assertEquals("gpt-reader", rootConfig.model());
+        assertEquals(rootConfig.workingDirectory(), childConfig.workingDirectory());
+        assertEquals(rootConfig.model(), childConfig.model());
+    }
+
+    @Test
+    void serializesConcurrentWritersAcrossStoreInstances() throws Exception {
+        Path database = directory.resolve("concurrent.db");
+        SessionId sessionId = new SessionId("shared-session");
+        SqliteSessionStore first = new SqliteSessionStore(database);
+        SqliteSessionStore second = new SqliteSessionStore(database);
+
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var left = executor.submit(() -> appendRange(first, sessionId, "left", 30));
+            var right = executor.submit(() -> appendRange(second, sessionId, "right", 30));
+            left.get(10, TimeUnit.SECONDS);
+            right.get(10, TimeUnit.SECONDS);
+        }
+
+        SessionRecord record = first.load(sessionId);
+        assertEquals(60, record.events().size());
+        assertEquals(60, record.events().stream().map(AgentEvent::text).distinct().count());
+    }
+
+    private static void appendRange(
+            SqliteSessionStore store,
+            SessionId sessionId,
+            String prefix,
+            int count
+    ) {
+        for (int index = 0; index < count; index++) {
+            store.append(sessionId, AgentEvent.userMessage(prefix + "-" + index));
+        }
     }
 }

@@ -31,6 +31,26 @@ const viewCopy = {
   },
 };
 
+const finishCopy = {
+  FINAL_ANSWER: { state: "已完成", message: "任务运行完成", error: false },
+  ITERATION_LIMIT: {
+    state: "轮次用尽",
+    message: "模型轮次已用尽，请缩小任务或提高最大模型轮次。",
+    error: true,
+  },
+  ERROR_LIMIT: {
+    state: "模型调用失败",
+    message: "模型调用连续失败，Runtime 已停止恢复。请检查模型配置后重试。",
+    error: true,
+  },
+  INTERRUPTED: { state: "已中断", message: "任务已中断。", error: true },
+  VERIFICATION_FAILED: {
+    state: "验证未通过",
+    message: "模型已经回答，但项目完成验证没有通过。请查看运行轨迹。",
+    error: true,
+  },
+};
+
 const element = (selector) => document.querySelector(selector);
 const elements = (selector) => [...document.querySelectorAll(selector)];
 
@@ -77,6 +97,12 @@ function renderConfiguration() {
   element("#api-key-hint").textContent = configured
     ? "凭证已配置。留空保存会继续使用当前凭证。"
     : "首次配置必须填写，保存后不会再次显示。";
+  element("#configuration-source").textContent = configured
+    ? `配置来源：${state.config.configurationSource || "页面配置"}`
+    : "配置来源：尚未配置";
+  const notices = state.config?.configurationNotices || [];
+  element("#configuration-notices").textContent = notices.join("；");
+  element("#configuration-notices").classList.toggle("hidden", notices.length === 0);
 }
 
 function renderRuntimeConfiguration() {
@@ -90,6 +116,7 @@ function renderRuntimeConfiguration() {
   element("#skills-directory").value = config.skillsDirectory || "";
   element("#skills-enabled").checked = config.skillsEnabled;
   element("#file-editing-enabled").checked = config.fileEditingEnabled;
+  element("#profile").value = config.profile || "default";
   element("#runtime-config-state").textContent = `${config.loadedSkills.length} 个 Skill`;
   element("#runtime-config-state").className = `state-label${config.loadedSkills.length ? " success" : ""}`;
 
@@ -220,8 +247,14 @@ function renderRun() {
   renderModelAnswer(content, run.finalAnswer || "模型没有返回文本。");
   content.classList.remove("empty");
   element("#result-meta").textContent = `${run.conversationId} · ${run.turnsUsed} 个模型轮次`;
-  element("#run-state").textContent = run.finishReason;
-  element("#run-state").className = `state-label ${run.finishReason === "FINAL_ANSWER" ? "success" : "error"}`;
+  const finish = finishCopy[run.finishReason] || {
+    state: run.finishReason,
+    message: `Runtime 以 ${run.finishReason} 结束。`,
+    error: true,
+  };
+  element("#run-state").textContent = finish.state;
+  element("#run-state").className = `state-label ${finish.error ? "error" : "success"}`;
+  element("#conversation-id").value = run.conversationId;
 
   const toolRequests = run.events.filter((event) => event.kind === "TOOL_REQUESTED").length;
   const toolResults = run.events.filter((event) => event.kind === "TOOL_OBSERVED").length;
@@ -427,6 +460,7 @@ element("#runtime-form").addEventListener("submit", async (event) => {
         skillsDirectory: element("#skills-directory").value.trim(),
         skillsEnabled: element("#skills-enabled").checked,
         fileEditingEnabled: element("#file-editing-enabled").checked,
+        profile: element("#profile").value.trim(),
       }),
     });
     state.lastRun = null;
@@ -461,11 +495,16 @@ element("#task-form").addEventListener("submit", async (event) => {
       body: JSON.stringify({
         prompt: element("#prompt").value.trim(),
         maxTurns: Number(element("#max-turns").value),
+        conversationId: element("#conversation-id").value.trim(),
       }),
     });
     renderRun();
     await loadOperations();
-    setMessage("#run-message", "运行完成");
+    const finish = finishCopy[state.lastRun.finishReason] || {
+      message: `Runtime 以 ${state.lastRun.finishReason} 结束。`,
+      error: true,
+    };
+    setMessage("#run-message", finish.message, finish.error);
   } catch (error) {
     element("#run-state").textContent = "运行失败";
     element("#run-state").className = "state-label error";

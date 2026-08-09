@@ -1,5 +1,7 @@
 package com.ading.ai.hermes.web;
 
+import com.ading.ai.hermes.config.ConfigurationSource;
+import com.ading.ai.hermes.config.LoadedApplicationConfiguration;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.nio.file.Path;
@@ -37,6 +39,30 @@ class HermesWebApplicationTest {
 
         assertEquals("https://models.example", config.baseUrl());
         assertEquals("hermes-model", config.model());
+    }
+
+    @Test
+    void preservesTheVisibleSourceOfPreloadedCredentials() {
+        LoadedApplicationConfiguration configuration = new LoadedApplicationConfiguration(
+                Map.of(
+                        "OPENAI_BASE_URL", "https://models.example",
+                        "OPENAI_API_KEY", "secret",
+                        "OPENAI_MODEL", "hermes-model"
+                ),
+                Map.of(
+                        "OPENAI_BASE_URL", ConfigurationSource.LOCAL_FILE,
+                        "OPENAI_API_KEY", ConfigurationSource.LOCAL_FILE,
+                        "OPENAI_MODEL", ConfigurationSource.LOCAL_FILE
+                ),
+                java.util.List.of("模型配置来自本地配置文件")
+        );
+
+        WebRuntimeConfig config = HermesWebApplication.initialConfig(configuration, workspace);
+
+        assertEquals(ConfigurationSource.LOCAL_FILE, config.source());
+        assertEquals(java.util.List.of("模型配置来自本地配置文件"), config.notices());
+        assertTrue(config.toString().contains("source=LOCAL_FILE"));
+        assertTrue(!config.toString().contains("secret"));
     }
 
     @Test

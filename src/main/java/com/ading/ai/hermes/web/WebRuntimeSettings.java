@@ -1,6 +1,7 @@
 package com.ading.ai.hermes.web;
 
 import com.ading.ai.hermes.runtime.HermesRuntimeOptions;
+import com.ading.ai.hermes.runtime.HermesProfile;
 import com.ading.ai.hermes.skill.SkillLoader;
 import com.ading.ai.hermes.skill.SkillManifest;
 import java.io.IOException;
@@ -16,7 +17,8 @@ public record WebRuntimeSettings(
         String userMemory,
         Path skillsDirectory,
         boolean skillsEnabled,
-        boolean fileEditingEnabled
+        boolean fileEditingEnabled,
+        String profile
 ) {
 
     private static final int MAX_TEXT_CHARACTERS = 20_000;
@@ -32,8 +34,12 @@ public record WebRuntimeSettings(
         systemPromptAppendix = normalizeText(systemPromptAppendix, "systemPromptAppendix");
         projectMemory = normalizeText(projectMemory, "projectMemory");
         userMemory = normalizeText(userMemory, "userMemory");
+        HermesProfile selectedProfile = new HermesProfile(
+                profile == null || profile.isBlank() ? "default" : profile
+        );
+        profile = selectedProfile.name();
         Path configuredSkills = skillsDirectory == null
-                ? workspace.resolve(".hermes").resolve("skills")
+                ? selectedProfile.stateDirectory(workspace).resolve("skills")
                 : skillsDirectory;
         if (!configuredSkills.isAbsolute()) {
             configuredSkills = workspace.resolve(configuredSkills);
@@ -49,8 +55,29 @@ public record WebRuntimeSettings(
         validateSkillSize(loadSkills(skillsDirectory, skillsEnabled));
     }
 
+    public WebRuntimeSettings(
+            Path workspace,
+            String systemPromptAppendix,
+            String projectMemory,
+            String userMemory,
+            Path skillsDirectory,
+            boolean skillsEnabled,
+            boolean fileEditingEnabled
+    ) {
+        this(
+                workspace,
+                systemPromptAppendix,
+                projectMemory,
+                userMemory,
+                skillsDirectory,
+                skillsEnabled,
+                fileEditingEnabled,
+                "default"
+        );
+    }
+
     public static WebRuntimeSettings defaults(Path workspace) {
-        return new WebRuntimeSettings(workspace, "", "", "", null, true, true);
+        return new WebRuntimeSettings(workspace, "", "", "", null, true, true, "default");
     }
 
     public List<SkillManifest> loadedSkills() {
@@ -65,7 +92,8 @@ public record WebRuntimeSettings(
                 systemPromptAppendix,
                 projectMemory,
                 userMemory,
-                loadedSkills()
+                loadedSkills(),
+                new HermesProfile(profile)
         );
     }
 

@@ -6,6 +6,8 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ProviderRuntimeResolverTest {
 
@@ -105,5 +107,23 @@ class ProviderRuntimeResolverTest {
 
         assertEquals("openrouter", runtime.provider());
         assertEquals(ProviderResolutionSource.ENVIRONMENT, runtime.source());
+    }
+
+    @Test
+    void doesNotExposeResolvedCredentialsInItsStringRepresentation() {
+        ResolvedProviderRuntime runtime = resolver.resolve(new ProviderRuntimeRequest(
+                new ProviderRuntimeOverrides(
+                        "custom",
+                        "local-model",
+                        URI.create("http://127.0.0.1:11434/v1"),
+                        "reader-secret"
+                ),
+                ProviderRuntimeConfig.empty(),
+                Map.of(),
+                "openrouter"
+        ));
+
+        assertFalse(runtime.toString().contains("reader-secret"));
+        assertTrue(runtime.toString().contains("[REDACTED]"));
     }
 }

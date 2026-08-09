@@ -1,12 +1,14 @@
 package com.ading.ai.hermes.runtime;
 
 import com.ading.ai.hermes.core.AgentRunRequest;
+import com.ading.ai.hermes.core.FinishReason;
 import com.ading.ai.hermes.core.IterationBudget;
 import com.ading.ai.hermes.core.ModelTurn;
 import com.ading.ai.hermes.gateway.feishu.FeishuEvent;
 import com.ading.ai.hermes.gateway.feishu.FeishuHandleResult;
 import com.ading.ai.hermes.gateway.local.FeishuLocalService;
 import com.ading.ai.hermes.model.ChatResponse;
+import com.ading.ai.hermes.model.ChatRequest;
 import com.ading.ai.hermes.model.ModelOptions;
 import com.ading.ai.hermes.model.Usage;
 import com.ading.ai.hermes.memory.MemoryTarget;
@@ -16,6 +18,7 @@ import com.ading.ai.hermes.run.BusyInputMode;
 import com.ading.ai.hermes.run.RunStatus;
 import com.ading.ai.hermes.session.SessionId;
 import com.ading.ai.hermes.skill.SkillManifest;
+import com.ading.ai.hermes.verification.CompletionEvidence;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -98,6 +101,7 @@ class HermesRuntimeFactoryTest {
     @Test
     void appliesConfiguredMemoryMatchingSkillsAndToolPermissions() {
         AtomicReference<String> systemPrompt = new AtomicReference<>();
+        AtomicReference<ChatRequest> modelRequest = new AtomicReference<>();
         AtomicReference<List<String>> toolNames = new AtomicReference<>();
         SkillManifest matching = new SkillManifest(
                 "reader-summary",
@@ -127,6 +131,7 @@ class HermesRuntimeFactoryTest {
         HermesRuntimeAssembly assembly = HermesRuntimeFactory.create(
                 workspace,
                 request -> {
+                    modelRequest.set(request);
                     systemPrompt.set(request.messages().getFirst().content());
                     toolNames.set(request.tools().stream().map(tool -> tool.name()).toList());
                     return ChatResponse.of(ModelTurn.finalAnswer("done"));
@@ -146,7 +151,33 @@ class HermesRuntimeFactoryTest {
         assertTrue(systemPrompt.get().contains("User prefers the conclusion first."));
         assertTrue(systemPrompt.get().contains("Answer with exactly one sentence."));
         assertTrue(!systemPrompt.get().contains("Run project verification."));
+        assertTrue(modelRequest.get().cache().stablePrefixCharacters() < systemPrompt.get().length());
         assertEquals(List.of("read_file", "list_directory"), toolNames.get());
+    }
+
+    @Test
+    void appliesAnExplicitPerSessionModelOverrideWithoutChangingTheDefault() {
+        List<String> models = new ArrayList<>();
+        HermesRuntimeAssembly assembly = HermesRuntimeFactory.create(
+                workspace,
+                request -> {
+                    models.add(request.options().model());
+                    return ChatResponse.of(ModelTurn.finalAnswer("done"));
+                },
+                new ModelOptions("default-model", 0.0),
+                reply -> { }
+        );
+
+        assembly.runtime().run(AgentRunRequest.from(
+                "acp", "acp-session", "inspect project",
+                IterationBudget.maxTurns(1), Map.of("model", "session-model")
+        ));
+        assembly.runtime().run(AgentRunRequest.from(
+                "cli", "cli-session", "inspect project",
+                IterationBudget.maxTurns(1), Map.of()
+        ));
+
+        assertEquals(List.of("session-model", "default-model"), models);
     }
 
     @Test
@@ -217,6 +248,8 @@ class HermesRuntimeFactoryTest {
                 List.of("User prefers answers that give the conclusion first, then explain the reason."),
                 first.memories().entries(MemoryTarget.USER)
         );
+        assertTrue(first.learningGraph().nodes().stream()
+                .anyMatch(node -> node.content().contains("conclusion first")));
 
         AtomicReference<String> restartedPrompt = new AtomicReference<>();
         HermesRuntimeAssembly restarted = HermesRuntimeFactory.create(
@@ -309,5 +342,138 @@ class HermesRuntimeFactoryTest {
         assertFalse(persistedSession.contains("sk-runtime-secret"));
         assertFalse(persistedTrajectory.contains("sk-user-secret"));
         assertFalse(persistedTrajectory.contains("sk-runtime-secret"));
+    }
+
+    @Test
+    void returnsStructuredErrorLimitAfterProviderRecoveryIsExhausted() {
+        HermesRuntimeAssembly assembly = HermesRuntimeFactory.create(
+                workspace,
+                request -> {
+                    throw new IllegalStateException("provider unavailable");
+                },
+                new ModelOptions("test-model", 0.0),
+                reply -> { }
+        );
+
+        var result = assembly.runtime().run(AgentRunRequest.from(
+                "web",
+                "error-session",
+                "inspect project",
+                IterationBudget.maxTurns(2),
+                Map.of()
+        ));
+
+        assertEquals(FinishReason.ERROR_LIMIT, result.finishReason());
+        assertTrue(result.state().events().stream()
+                .anyMatch(event -> event.kind()
+                        == com.ading.ai.hermes.core.AgentEventKind.ERROR_RECOVERED));
+    }
+
+    @Test
+    void continuesTheSameConversationWithoutPersistingHistoryTwice() {
+        List<List<com.ading.ai.hermes.model.ChatMessage>> requests = new ArrayList<>();
+        AtomicInteger calls = new AtomicInteger();
+        HermesRuntimeAssembly assembly = HermesRuntimeFactory.create(
+                workspace,
+                request -> {
+                    requests.add(request.messages());
+                    return ChatResponse.of(ModelTurn.finalAnswer(
+                            calls.getAndIncrement() == 0 ? "记住了：alpha" : "标记是 alpha"
+                    ));
+                },
+                new ModelOptions("test-model", 0.0),
+                reply -> { }
+        );
+
+        assembly.runtime().run(AgentRunRequest.from(
+                "cli",
+                "continued-session",
+                "请记住项目标记 alpha",
+                IterationBudget.maxTurns(2),
+                Map.of()
+        ));
+        var second = assembly.runtime().run(AgentRunRequest.from(
+                "cli",
+                "continued-session",
+                "项目标记是什么？",
+                IterationBudget.maxTurns(2),
+                Map.of()
+        ));
+
+        String secondPrompt = requests.get(1).toString();
+        assertTrue(secondPrompt.contains("请记住项目标记 alpha"));
+        assertTrue(secondPrompt.contains("记住了：alpha"));
+        assertTrue(secondPrompt.contains("项目标记是什么？"));
+        assertEquals(2, second.state().events().size());
+        assertEquals(4, assembly.sessions()
+                .load(new SessionId("continued-session"))
+                .events()
+                .size());
+        assertEquals(
+                "cli",
+                assembly.sessions().lineage(new SessionId("continued-session")).orElseThrow().source()
+        );
+    }
+
+    @Test
+    void isolatesSessionAndMemoryStateBetweenNamedProfiles() {
+        HermesRuntimeOptions reviewer = new HermesRuntimeOptions(
+                40_000, 100_000, true, "", "", "", List.of(), new HermesProfile("reviewer")
+        );
+        HermesRuntimeOptions writer = new HermesRuntimeOptions(
+                40_000, 100_000, true, "", "", "", List.of(), new HermesProfile("writer")
+        );
+        HermesRuntimeAssembly reviewerRuntime = HermesRuntimeFactory.create(
+                workspace,
+                request -> ChatResponse.of(ModelTurn.finalAnswer("reviewed")),
+                new ModelOptions("test-model", 0.0),
+                reply -> { },
+                reviewer
+        );
+        reviewerRuntime.runtime().run(AgentRunRequest.from(
+                "cli", "profile-session", "检查项目", IterationBudget.maxTurns(1), Map.of()
+        ));
+        HermesRuntimeAssembly writerRuntime = HermesRuntimeFactory.create(
+                workspace,
+                request -> ChatResponse.of(ModelTurn.finalAnswer("written")),
+                new ModelOptions("test-model", 0.0),
+                reply -> { },
+                writer
+        );
+
+        assertEquals(2, reviewerRuntime.sessions().load(new SessionId("profile-session")).events().size());
+        assertEquals(0, writerRuntime.sessions().load(new SessionId("profile-session")).events().size());
+    }
+
+    @Test
+    void rejectsADeclaredFinalAnswerWhenCompletionEvidenceFails() {
+        HermesRuntimeAssembly assembly = HermesRuntimeFactory.create(
+                workspace,
+                request -> ChatResponse.of(ModelTurn.finalAnswer("任务已经完成")),
+                new ModelOptions("test-model", 0.0),
+                reply -> { },
+                HermesRuntimeOptions.defaults(),
+                result -> CompletionEvidence.reject("project verification failed")
+        );
+
+        var harnessResult = assembly.harness().run(new HarnessRunRequest(
+                AgentRunRequest.from(
+                        "cli",
+                        "verification-session",
+                        "修改项目并验证",
+                        IterationBudget.maxTurns(2),
+                        Map.of()
+                ),
+                List.of()
+        ));
+        var result = harnessResult.agentResult().orElseThrow();
+
+        assertEquals(FinishReason.VERIFICATION_FAILED, result.finishReason());
+        assertTrue(result.state().events().stream().anyMatch(event ->
+                event.kind() == com.ading.ai.hermes.core.AgentEventKind.COMPLETION_REJECTED
+                        && event.text().contains("project verification failed")
+        ));
+        assertEquals(HarnessRunStatus.FAILED, harnessResult.status());
+        assertEquals(RunStatus.FAILED, assembly.runs().snapshot(harnessResult.runId()).status());
     }
 }

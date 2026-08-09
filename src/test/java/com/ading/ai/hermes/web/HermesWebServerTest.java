@@ -142,13 +142,15 @@ class HermesWebServerTest {
                 "userMemory", "User prefers concise answers.",
                 "skillsDirectory", workspace.resolve(".hermes/skills").toString(),
                 "skillsEnabled", true,
-                "fileEditingEnabled", false
+                "fileEditingEnabled", false,
+                "profile", "reader"
         )).body());
 
         assertEquals(1, runtimeConfig.path("loadedSkills").size());
         assertEquals("reader-summary", runtimeConfig.path("loadedSkills").get(0).path("name").asText());
         assertFalse(configuredSettings.get().fileEditingEnabled());
         assertEquals("Project uses Java 21.", configuredSettings.get().projectMemory());
+        assertEquals("reader", configuredSettings.get().profile());
 
         HttpResponse<String> runResponse = post("/api/runs", Map.of(
                 "prompt", "inspect README",
@@ -241,6 +243,37 @@ class HermesWebServerTest {
         assertFalse(run.body().contains(secret));
         assertFalse(latest.body().contains(secret));
         assertTrue(run.body().contains("[REDACTED]"));
+    }
+
+    @Test
+    void continuesAnExplicitWebConversationAndReturnsNonSuccessFinishReasonsHonestly()
+            throws Exception {
+        post("/api/config", Map.of(
+                "baseUrl", "https://models.example/v1",
+                "apiKey", "reader-secret-value",
+                "model", "hermes-model",
+                "workspace", workspace.toString()
+        ));
+
+        JsonNode limited = objectMapper.readTree(post("/api/runs", Map.of(
+                "prompt", "inspect README",
+                "maxTurns", 1,
+                "conversationId", "web-reader"
+        )).body());
+        JsonNode continued = objectMapper.readTree(post("/api/runs", Map.of(
+                "prompt", "continue from the same session",
+                "maxTurns", 2,
+                "conversationId", "web-reader"
+        )).body());
+
+        assertEquals("web-reader", limited.path("conversationId").asText());
+        assertEquals("ITERATION_LIMIT", limited.path("finishReason").asText());
+        assertEquals("web-reader", continued.path("conversationId").asText());
+        assertEquals("FINAL_ANSWER", continued.path("finishReason").asText());
+        assertEquals(5, configuredAssembly.get().sessions()
+                .load(new com.ading.ai.hermes.session.SessionId("web-reader"))
+                .events()
+                .size());
     }
 
     private HttpResponse<String> get(String path) throws Exception {

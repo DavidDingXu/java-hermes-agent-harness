@@ -6,6 +6,7 @@ import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -95,6 +96,34 @@ class AgentLoopTest {
 
         assertEquals(FinishReason.ITERATION_LIMIT, result.finishReason());
         assertEquals("", result.finalAnswer());
+        assertEquals(1, result.state().turnsUsed());
+    }
+
+    @Test
+    void presentsRestoredHistoryAndTheNewUserTurnToTheModel() {
+        AtomicReference<AgentState> observed = new AtomicReference<>();
+        AgentLoop loop = new AgentLoop(
+                state -> {
+                    observed.set(state);
+                    return ModelTurn.finalAnswer("continued");
+                },
+                request -> ToolObservation.failure(request.callId(), "unused")
+        );
+        AgentState history = new AgentState(List.of(
+                AgentEvent.userMessage("remember alpha"),
+                AgentEvent.modelFinalAnswer("remembered")
+        ), 1);
+
+        AgentRunResult result = loop.run(
+                AgentRunRequest.start("what is the marker?", IterationBudget.maxTurns(2)),
+                history
+        );
+
+        assertEquals(List.of(
+                AgentEvent.userMessage("remember alpha"),
+                AgentEvent.modelFinalAnswer("remembered"),
+                AgentEvent.userMessage("what is the marker?")
+        ), observed.get().events());
         assertEquals(1, result.state().turnsUsed());
     }
 
