@@ -38,7 +38,7 @@ The agent that grows with you. 跟你一起成长的智能体。
 | 第 31 篇 | `checkpoints/05-observability-learning` | `ObservabilityCheckpointApplication.main()` |
 | 第 37 篇 | `checkpoints/06-advanced-harness` | `AdvancedHarnessCheckpointApplication.main()` |
 
-六份 Main 都读取项目根目录下已忽略的 `config/hermes.local.properties`，调用真实 OpenAI-compatible 模型，再检查当前阶段的结构化事实。模型调用失败、工具没有执行或磁盘结果不正确时，程序会直接失败，不会用脚本 Provider 补出成功结果。详细说明见 [`checkpoints/README.md`](checkpoints/README.md)。
+六份 Main 都读取项目根目录下已忽略的 `config/hermes.local.properties`，调用真实 OpenAI-compatible 模型，再检查当前阶段的结构化事实。模型调用失败、工具没有执行或磁盘结果不正确时，程序会直接失败。详细说明见 [`checkpoints/README.md`](checkpoints/README.md)。
 
 完成第 38 篇后，再回到根项目运行 `JavaHermesApplication.main()`、`HermesWebApplication.main()`，或由 Agent Client 启动 `AcpApplication.main()`，验证最终装配。
 
