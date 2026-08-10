@@ -1,0 +1,16 @@
+{
+  "agent_servers": {
+    "java-hermes": {
+      "type": "custom",
+      "command": "java",
+      "args": [
+        "-cp",
+        "<absolute-project-path>/target/java-hermes-agent-harness-0.1.0-SNAPSHOT.jar",
+        "com.ading.ai.hermes.acp.AcpApplication",
+        "--config",
+        "<absolute-project-path>/config/hermes.local.properties"
+      ],
+      "env": {}
+    }
+  }
+}

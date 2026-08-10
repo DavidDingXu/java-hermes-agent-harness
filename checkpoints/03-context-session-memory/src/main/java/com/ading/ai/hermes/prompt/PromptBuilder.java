@@ -13,12 +13,16 @@ import java.util.Objects;
 
 public final class PromptBuilder implements ChatRequestFactory {
 
-    private final PromptPolicy policy;
+    private final PromptPlan plan;
     private final List<ToolSpec> tools;
     private final ModelOptions options;
 
     public PromptBuilder(PromptPolicy policy, List<ToolSpec> tools, ModelOptions options) {
-        this.policy = Objects.requireNonNull(policy, "policy must not be null");
+        this(PromptPlan.fromPolicy(Objects.requireNonNull(policy, "policy must not be null")), tools, options);
+    }
+
+    public PromptBuilder(PromptPlan plan, List<ToolSpec> tools, ModelOptions options) {
+        this.plan = Objects.requireNonNull(plan, "plan must not be null");
         this.tools = List.copyOf(tools);
         this.options = Objects.requireNonNull(options, "options must not be null");
     }
@@ -26,7 +30,7 @@ public final class PromptBuilder implements ChatRequestFactory {
     @Override
     public ChatRequest create(AgentState state) {
         List<ChatMessage> messages = new ArrayList<>();
-        messages.add(ChatMessage.system(policy.systemPrompt()));
+        messages.add(ChatMessage.system(plan.systemPrompt()));
         for (int index = 0; index < state.events().size(); index++) {
             AgentEvent event = state.events().get(index);
             if (event.kind() == com.ading.ai.hermes.core.AgentEventKind.TOOL_REQUESTED) {
@@ -43,7 +47,7 @@ public final class PromptBuilder implements ChatRequestFactory {
                 messages.add(toMessage(event));
             }
         }
-        return new ChatRequest(messages, tools, options);
+        return new ChatRequest(messages, tools, options, plan.cacheDescriptor());
     }
 
     private ChatMessage toMessage(AgentEvent event) {

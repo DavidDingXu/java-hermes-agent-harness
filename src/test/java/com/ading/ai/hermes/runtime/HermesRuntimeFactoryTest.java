@@ -4,6 +4,11 @@ import com.ading.ai.hermes.core.AgentRunRequest;
 import com.ading.ai.hermes.core.FinishReason;
 import com.ading.ai.hermes.core.IterationBudget;
 import com.ading.ai.hermes.core.ModelTurn;
+import com.ading.ai.hermes.core.ToolRequest;
+import com.ading.ai.hermes.delegate.DelegationPolicy;
+import com.ading.ai.hermes.delegate.DelegationRequest;
+import com.ading.ai.hermes.delegate.SubAgentRunner;
+import com.ading.ai.hermes.delegate.SubAgentTask;
 import com.ading.ai.hermes.gateway.feishu.FeishuEvent;
 import com.ading.ai.hermes.gateway.feishu.FeishuHandleResult;
 import com.ading.ai.hermes.gateway.local.FeishuLocalService;
@@ -342,6 +347,62 @@ class HermesRuntimeFactoryTest {
         assertFalse(persistedSession.contains("sk-runtime-secret"));
         assertFalse(persistedTrajectory.contains("sk-user-secret"));
         assertFalse(persistedTrajectory.contains("sk-runtime-secret"));
+    }
+
+    @Test
+    void givesAChildItsOwnConversationAndSelectedToolset() {
+        AtomicReference<List<String>> offeredTools = new AtomicReference<>();
+        AtomicInteger calls = new AtomicInteger();
+        HermesRuntimeOptions options = new HermesRuntimeOptions(
+                20_000, 50_000, true, "", "", "", List.of()
+        );
+        HermesRuntimeAssembly assembly = HermesRuntimeFactory.create(
+                workspace,
+                request -> {
+                    offeredTools.set(request.tools().stream().map(tool -> tool.name()).toList());
+                    if (calls.getAndIncrement() == 0) {
+                        return ChatResponse.of(ModelTurn.toolRequest(new ToolRequest(
+                                "call-edit",
+                                "edit_file",
+                                Map.of(
+                                        "path", "README.md",
+                                        "expected", "before",
+                                        "replacement", "after"
+                                )
+                        )));
+                    }
+                    return ChatResponse.of(ModelTurn.finalAnswer("write access was unavailable"));
+                },
+                new ModelOptions("test-model", 0.0),
+                reply -> { },
+                options,
+                result -> CompletionEvidence.accept("test verifier")
+        );
+        SubAgentRunner runner = new SubAgentRunner(
+                assembly.runtime(),
+                new DelegationPolicy(1, IterationBudget.maxTurns(3))
+        );
+        String childConversation = "parent.subagent.delegation-1.read-only";
+
+        runner.run(new DelegationRequest(
+                "delegation-1",
+                "parent-run",
+                "parent",
+                List.of(new SubAgentTask(
+                        "read-only",
+                        "inspect without editing",
+                        "",
+                        List.of("workspace-read"),
+                        null
+                ))
+        ));
+
+        assertEquals(java.util.Set.of("read_file", "list_directory"), java.util.Set.copyOf(offeredTools.get()));
+        assertTrue(assembly.sessions().load(new SessionId(childConversation)).events().stream()
+                .filter(event -> event.toolObservation() != null)
+                .anyMatch(event -> event.toolObservation().content().contains("tool not registered: edit_file")));
+        assertTrue(assembly.trajectories().records().stream()
+                .anyMatch(record -> record.sessionId().equals(childConversation)));
     }
 
     @Test

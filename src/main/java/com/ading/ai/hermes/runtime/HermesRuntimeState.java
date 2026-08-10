@@ -197,7 +197,8 @@ public final class HermesRuntimeState {
             case TOOL_OBSERVED -> AgentEvent.toolObserved(new ToolObservation(
                     event.toolObservation().callId(),
                     event.toolObservation().success(),
-                    redactor.redact(event.toolObservation().content())
+                    redactor.redact(event.toolObservation().content()),
+                    event.toolObservation().failureKind()
             ));
         };
     }

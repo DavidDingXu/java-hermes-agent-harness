@@ -104,7 +104,16 @@ class HermesWebServerTest {
         assertEquals(200, config.statusCode());
         assertFalse(objectMapper.readTree(config.body()).path("configured").asBoolean());
         assertTrue(runtimeConfig.path("skillsEnabled").asBoolean());
-        assertTrue(runtimeConfig.path("fileEditingEnabled").asBoolean());
+        assertFalse(runtimeConfig.path("fileEditingEnabled").asBoolean());
+    }
+
+    @Test
+    void keepsFileEditingDisabledWhenTheRuntimeRequestOmitsTheSwitch() throws Exception {
+        JsonNode runtimeConfig = objectMapper.readTree(post("/api/runtime-config", Map.of(
+                "skillsEnabled", true
+        )).body());
+
+        assertFalse(runtimeConfig.path("fileEditingEnabled").asBoolean());
     }
 
     @Test

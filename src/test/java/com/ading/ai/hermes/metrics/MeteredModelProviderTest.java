@@ -54,6 +54,50 @@ class MeteredModelProviderTest {
         assertEquals("IllegalStateException", metrics.calls().get(0).errorType());
     }
 
+    @Test
+    void returnsSuccessfulResponseWhenTheMetricsSinkFails() {
+        ChatResponse response = new ChatResponse(ModelTurn.finalAnswer("done"), Usage.empty(), "test-provider");
+        InMemoryMetricsHealth health = new InMemoryMetricsHealth();
+        MeteredModelProvider provider = new MeteredModelProvider(
+                request -> response,
+                metric -> {
+                    throw new IllegalStateException("metrics unavailable");
+                },
+                () -> 0L,
+                health
+        );
+
+        ChatResponse actual = provider.complete(request());
+
+        assertSame(response, actual);
+        assertEquals(1, health.droppedCount());
+        assertEquals("metrics unavailable", health.latestError());
+    }
+
+    @Test
+    void preservesProviderFailureWhenRecordingTheFailureMetricAlsoFails() {
+        IllegalStateException providerFailure = new IllegalStateException("provider unavailable");
+        InMemoryMetricsHealth health = new InMemoryMetricsHealth();
+        MeteredModelProvider provider = new MeteredModelProvider(
+                request -> {
+                    throw providerFailure;
+                },
+                metric -> {
+                    throw new IllegalArgumentException("metrics unavailable");
+                },
+                () -> 0L,
+                health
+        );
+
+        IllegalStateException actual = assertThrows(
+                IllegalStateException.class,
+                () -> provider.complete(request())
+        );
+
+        assertSame(providerFailure, actual);
+        assertEquals(1, health.droppedCount());
+    }
+
     private static ChatRequest request() {
         return new ChatRequest(
                 List.of(ChatMessage.user("hello")),

@@ -60,7 +60,12 @@ public final class AgentHarness {
     }
 
     public HarnessRunResult run(HarnessRunRequest request) {
+        return run(request, StopSignal.none());
+    }
+
+    public HarnessRunResult run(HarnessRunRequest request, StopSignal externalStopSignal) {
         Objects.requireNonNull(request, "request must not be null");
+        Objects.requireNonNull(externalStopSignal, "externalStopSignal must not be null");
         AgentRunRequest agentRequest = request.agentRequest();
         String sessionId = agentRequest.conversationId().isBlank()
                 ? agentRequest.source() + "-" + UUID.randomUUID()
@@ -68,6 +73,7 @@ public final class AgentHarness {
         RunSnapshot run = runs.start(sessionId, agentRequest.userMessage());
         List<String> warnings = new ArrayList<>();
         Optional<WorkspaceCheckpoint> checkpoint = Optional.empty();
+        StopSignal runStopSignal = combinedStopSignal(externalStopSignal, stopSignal(run.runId()));
 
         try {
             ContextReferenceResult context = contextReferences.resolve(agentRequest.userMessage());
@@ -108,11 +114,11 @@ public final class AgentHarness {
                     resolvedMessage,
                     agentRequest.budget(),
                     runtimeMetadata
-            ), stopSignal(run.runId()));
+            ), runStopSignal);
             runs.emit(run.runId(), RunEventType.MODEL_FINISHED, agentResult.finishReason().name());
 
             if (agentResult.finishReason() == FinishReason.INTERRUPTED) {
-                String reason = stopSignal(run.runId()).reason();
+                String reason = runStopSignal.reason();
                 runs.stop(run.runId(), reason);
                 return result(run.runId(), HarnessRunStatus.INTERRUPTED, reason,
                         Optional.of(agentResult), checkpoint, warnings);
@@ -144,7 +150,7 @@ public final class AgentHarness {
                     Optional.of(agentResult), checkpoint, warnings);
         } catch (Exception exception) {
             String message = exception.getClass().getSimpleName() + ": " + exception.getMessage();
-            if (runs.snapshot(run.runId()).stopRequested()) {
+            if (runStopSignal.stopRequested()) {
                 runs.stop(run.runId(), message);
                 return result(run.runId(), HarnessRunStatus.INTERRUPTED, message,
                         Optional.empty(), checkpoint, warnings);
@@ -153,6 +159,23 @@ public final class AgentHarness {
             return result(run.runId(), HarnessRunStatus.FAILED, message,
                     Optional.empty(), checkpoint, warnings);
         }
+    }
+
+    private static StopSignal combinedStopSignal(StopSignal external, StopSignal coordinated) {
+        return new StopSignal() {
+            @Override
+            public boolean stopRequested() {
+                return external.stopRequested() || coordinated.stopRequested();
+            }
+
+            @Override
+            public String reason() {
+                if (external.stopRequested()) {
+                    return external.reason();
+                }
+                return coordinated.reason();
+            }
+        };
     }
 
     private StopSignal stopSignal(String runId) {

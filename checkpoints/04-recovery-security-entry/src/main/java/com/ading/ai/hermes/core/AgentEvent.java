@@ -21,6 +21,10 @@ public record AgentEvent(AgentEventKind kind, String text, ToolRequest toolReque
         return new AgentEvent(AgentEventKind.ERROR_RECOVERED, text, null, null);
     }
 
+    public static AgentEvent completionRejected(String text) {
+        return new AgentEvent(AgentEventKind.COMPLETION_REJECTED, text, null, null);
+    }
+
     public static AgentEvent runInterrupted(String text) {
         return new AgentEvent(AgentEventKind.RUN_INTERRUPTED, text, null, null);
     }

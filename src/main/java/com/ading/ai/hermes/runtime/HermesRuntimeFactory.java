@@ -9,7 +9,8 @@ import com.ading.ai.hermes.context.reference.ContextReferenceResolver;
 import com.ading.ai.hermes.context.reference.ProcessGitContextReader;
 import com.ading.ai.hermes.context.reference.UrlContextFetcher;
 import com.ading.ai.hermes.control.FileEmergencyStop;
-import com.ading.ai.hermes.core.InterruptibleAgentLoop;
+import com.ading.ai.hermes.delegate.SubAgentMetadata;
+import com.ading.ai.hermes.core.ErrorRecoveringAgentLoop;
 import com.ading.ai.hermes.core.ErrorRecoveryPolicy;
 import com.ading.ai.hermes.core.AgentEventKind;
 import com.ading.ai.hermes.core.ModelDriver;
@@ -36,12 +37,15 @@ import com.ading.ai.hermes.tool.ToolRegistry;
 import com.ading.ai.hermes.tool.ToolBatchRunner;
 import com.ading.ai.hermes.tools.basic.WorkspaceEditTool;
 import com.ading.ai.hermes.tools.basic.WorkspaceFileTools;
+import com.ading.ai.hermes.toolset.ToolsetCatalog;
 import com.ading.ai.hermes.verification.CompletionGate;
 import com.ading.ai.hermes.verification.CompletionVerifier;
 import com.ading.ai.hermes.verification.WorkspaceCompletionVerifier;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.Objects;
+import java.util.Set;
 
 public final class HermesRuntimeFactory {
 
@@ -95,12 +99,22 @@ public final class HermesRuntimeFactory {
         Objects.requireNonNull(completionVerifier, "completionVerifier must not be null");
 
         HermesRuntimeState runtimeState = new HermesRuntimeState(workspace, runtimeOptions.profile());
-        ToolRegistry tools = new WorkspaceFileTools(workspace, runtimeOptions.maxFileCharacters())
-                .registerInto(ToolRegistry.empty());
+        WorkspaceFileTools workspaceFileTools = new WorkspaceFileTools(
+                workspace,
+                runtimeOptions.maxFileCharacters()
+        );
+        ToolRegistry tools = workspaceFileTools.registerInto(ToolRegistry.empty());
+        ToolsetCatalog toolsets = ToolsetCatalog.empty();
+        for (var definition : workspaceFileTools.definitions()) {
+            toolsets = toolsets.register("workspace-read", definition);
+        }
         if (runtimeOptions.fileEditingEnabled()) {
-            tools = new WorkspaceEditTool(workspace).registerInto(tools);
+            WorkspaceEditTool editTool = new WorkspaceEditTool(workspace);
+            tools = editTool.registerInto(tools);
+            toolsets = toolsets.register("workspace-write", editTool.definition());
         }
         ToolRegistry configuredTools = tools;
+        ToolsetCatalog configuredToolsets = toolsets;
         MeteredModelProvider meteredProvider = new MeteredModelProvider(
                 provider,
                 runtimeState.metrics()
@@ -108,17 +122,10 @@ public final class HermesRuntimeFactory {
         var contextEngine = new CompactingContextEngine(new ContextCompactor(
                 new ContextCompactionPolicy(60_000, 2, 12, 12_000, 1_000)
         ));
-        ToolBatchRunner toolRunner = new ToolBatchRunner(
-                new GuardedToolDriver(
-                        tools,
-                        java.util.List.of(ToolPolicy.workspaceRelativePath("path"))
-                ),
-                4,
-                request -> request.name().equals("read_file")
-                        || request.name().equals("list_directory")
-        );
         InMemoryRunCoordinator runs = new InMemoryRunCoordinator();
         HarnessRuntime instrumentedRuntime = (request, stopSignal) -> {
+            ToolRegistry activeTools = selectedTools(request, configuredTools, configuredToolsets);
+            ToolBatchRunner toolRunner = toolRunner(activeTools);
             ModelOptions activeModel = modelOptionsFor(request, modelOptions);
             ChatRequestFactory requestFactory = agentState -> new PromptBuilder(
                     runtimeOptions.promptPlanFor(
@@ -127,14 +134,14 @@ public final class HermesRuntimeFactory {
                             runtimeState.memories().entries(MemoryTarget.USER),
                             runtimeState.skillApprovals().approvedSkills()
                     ),
-                    configuredTools.specs(),
+                    activeTools.specs(),
                     activeModel
             ).create(agentState);
             ModelDriver modelDriver = new ModelProviderDriver(meteredProvider, requestFactory);
             ModelDriver contextAwareModel = state -> modelDriver.next(
                     contextEngine.select(state).state()
             );
-            var result = new InterruptibleAgentLoop(
+            var result = new ErrorRecoveringAgentLoop(
                     contextAwareModel,
                     toolRunner,
                     stopSignal,
@@ -187,6 +194,38 @@ public final class HermesRuntimeFactory {
                 emergencyStop,
                 runtimeState,
                 acp
+        );
+    }
+
+    private static ToolRegistry selectedTools(
+            com.ading.ai.hermes.core.AgentRunRequest request,
+            ToolRegistry configuredTools,
+            ToolsetCatalog configuredToolsets
+    ) {
+        if (!request.metadata().containsKey(SubAgentMetadata.TOOLSETS)) {
+            return configuredTools;
+        }
+        String configured = request.metadata().get(SubAgentMetadata.TOOLSETS);
+        Set<String> selected = new LinkedHashSet<>();
+        if (configured != null && !configured.isBlank()) {
+            for (String name : configured.split(",")) {
+                if (!name.isBlank()) {
+                    selected.add(name.trim());
+                }
+            }
+        }
+        return configuredToolsets.select(Set.copyOf(selected)).registry();
+    }
+
+    private static ToolBatchRunner toolRunner(ToolRegistry tools) {
+        return new ToolBatchRunner(
+                new GuardedToolDriver(
+                        tools,
+                        java.util.List.of(ToolPolicy.workspaceRelativePath("path"))
+                ),
+                4,
+                request -> request.name().equals("read_file")
+                        || request.name().equals("list_directory")
         );
     }
 

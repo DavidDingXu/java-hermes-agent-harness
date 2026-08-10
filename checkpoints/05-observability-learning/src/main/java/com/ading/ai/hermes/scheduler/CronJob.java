@@ -27,9 +27,8 @@ public record CronJob(
         return !paused && !nextRunAt.isAfter(now);
     }
 
-    public String fireKey(Instant fireTime) {
-        Objects.requireNonNull(fireTime, "fireTime must not be null");
-        return id + "@" + fireTime;
+    public String fireKey() {
+        return id + "@" + nextRunAt;
     }
 
     private static String requireText(String value, String fieldName) {

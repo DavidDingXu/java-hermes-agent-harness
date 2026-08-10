@@ -7,6 +7,7 @@ import com.ading.ai.hermes.core.AgentRunResult;
 import com.ading.ai.hermes.core.AgentState;
 import com.ading.ai.hermes.core.FinishReason;
 import com.ading.ai.hermes.core.IterationBudget;
+import com.ading.ai.hermes.core.ManualStopSignal;
 import com.ading.ai.hermes.hook.HookFailureMode;
 import com.ading.ai.hermes.hook.RuntimeHookChain;
 import com.ading.ai.hermes.hook.RuntimeHookDecision;
@@ -134,6 +135,31 @@ class AgentHarnessTest {
     @Test
     void marksRecoveryExhaustionAsFailedInsteadOfCompleted() {
         assertFailedFinishReason(FinishReason.ERROR_LIMIT);
+    }
+
+    @Test
+    void propagatesAnExternalParentStopSignalIntoTheRuntime() {
+        ManualStopSignal parentStop = new ManualStopSignal();
+        parentStop.requestStop("parent run stopped");
+        AgentHarness harness = new AgentHarness(
+                (HarnessRuntime) (request, stopSignal) -> new AgentRunResult(
+                        stopSignal.stopRequested() ? FinishReason.INTERRUPTED : FinishReason.FINAL_ANSWER,
+                        "",
+                        AgentState.start(request.userMessage())
+                ),
+                new ContextReferenceResolver(workspace, 10_000, url -> "", git -> ""),
+                new FileWorkspaceCheckpointStore(workspace),
+                new InMemoryRunCoordinator(),
+                RuntimeHookChain.empty()
+        );
+
+        HarnessRunResult result = harness.run(new HarnessRunRequest(
+                AgentRunRequest.start("child task", IterationBudget.maxTurns(1)),
+                List.of()
+        ), parentStop);
+
+        assertEquals(HarnessRunStatus.INTERRUPTED, result.status());
+        assertEquals("parent run stopped", result.message());
     }
 
     private void assertFailedFinishReason(FinishReason finishReason) {

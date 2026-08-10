@@ -7,7 +7,7 @@ import com.ading.ai.hermes.core.AgentRunResult;
 import com.ading.ai.hermes.core.AgentRuntime;
 import com.ading.ai.hermes.core.ErrorRecoveryPolicy;
 import com.ading.ai.hermes.core.FinishReason;
-import com.ading.ai.hermes.core.InterruptibleAgentLoop;
+import com.ading.ai.hermes.core.ErrorRecoveringAgentLoop;
 import com.ading.ai.hermes.core.IterationBudget;
 import com.ading.ai.hermes.core.ModelTurn;
 import com.ading.ai.hermes.core.StopSignal;
@@ -77,7 +77,12 @@ public final class GovernedEntryCheckpointApplication {
         require(acp.sessionCount() == 2, "ACP Session 新建与分叉没有持久化");
         require(acp.updateCount() >= 2, "ACP 没有发送工具开始和完成更新");
         require(cron.runs().size() == 1, "Cron 没有产生一次运行");
+        require(cron.deliveries().getFirst().status()
+                == com.ading.ai.hermes.scheduler.CronDeliveryStatus.DELIVERED,
+                "Cron 没有记录投递状态");
         require(delegation.results().size() == 1, "Subagent 没有返回隔离结果");
+        require(delegation.results().getFirst().conversationId().contains("subagent"),
+                "Subagent 没有独立会话");
 
         System.out.println("[阶段 04] 可治理入口运行成功");
         System.out.println("错误恢复: " + recovered.finalAnswer());
@@ -94,9 +99,9 @@ public final class GovernedEntryCheckpointApplication {
         System.out.println("在线 ACP 回答: " + ReaderModelRuntime.preview(acp.answer()));
     }
 
-    private static AgentRunResult runWithRecovery() {
+    static AgentRunResult runWithRecovery() {
         AtomicInteger calls = new AtomicInteger();
-        InterruptibleAgentLoop loop = new InterruptibleAgentLoop(
+        ErrorRecoveringAgentLoop loop = new ErrorRecoveringAgentLoop(
                 state -> {
                     if (calls.getAndIncrement() == 0) {
                         throw new IllegalStateException("provider temporarily unavailable");
@@ -117,7 +122,7 @@ public final class GovernedEntryCheckpointApplication {
         return result;
     }
 
-    private static ToolObservation verifyGuardrail() {
+    static ToolObservation verifyGuardrail() {
         AtomicInteger delegateCalls = new AtomicInteger();
         GuardedToolDriver guarded = new GuardedToolDriver(
                 request -> {
@@ -135,7 +140,7 @@ public final class GovernedEntryCheckpointApplication {
         return observation;
     }
 
-    private static HttpGatewayResponse invokeGateway(AgentRuntime runtime) {
+    static HttpGatewayResponse invokeGateway(AgentRuntime runtime) {
         return new HttpGatewayHandler(runtime).handle(new HttpGatewayRequest(
                 "POST",
                 HttpGatewayHandler.TURN_PATH,
@@ -149,7 +154,7 @@ public final class GovernedEntryCheckpointApplication {
         ));
     }
 
-    private static FeishuHandleResult invokeFeishu(AgentRuntime runtime) {
+    static FeishuHandleResult invokeFeishu(AgentRuntime runtime) {
         List<FeishuReply> replies = new ArrayList<>();
         GatewayIdentity identity = new GatewayIdentity(
                 "feishu",
@@ -185,7 +190,7 @@ public final class GovernedEntryCheckpointApplication {
         return result;
     }
 
-    private static AcpCheckpointResult invokeAcp(ReaderModelRuntime readerModel) throws Exception {
+    static AcpCheckpointResult invokeAcp(ReaderModelRuntime readerModel) throws Exception {
         Path workspace = Files.createTempDirectory("hermes-acp-checkpoint-");
         try {
             SqliteSessionStore sessions = new SqliteSessionStore(workspace.resolve("sessions.db"));
@@ -320,14 +325,21 @@ public final class GovernedEntryCheckpointApplication {
         );
     }
 
-    private static CronTickResult invokeCron(AgentRuntime runtime) {
+    static CronTickResult invokeCron(AgentRuntime runtime) {
         List<CronRunRecord> deliveries = new ArrayList<>();
         CronScheduler scheduler = new CronScheduler(runtime, deliveries::add);
         Instant now = Instant.parse("2026-08-09T08:00:00Z");
         CronJob job = new CronJob(
                 "daily-review",
                 "每日检查",
-                "检查项目状态",
+                """
+                        根据以下本次巡检已采集的状态生成一句中文摘要：
+                        - 构建入口：pom.xml
+                        - Java 版本：21
+                        - Runtime 状态：可接收任务
+                        只总结给定证据，不推测未提供的信息；摘要必须保留
+                        pom.xml、Java 21 和 Runtime 可接收任务这三个原文关键词。
+                        """,
                 CronSchedule.everyMinutes(60),
                 now,
                 DeliveryTarget.local("console"),
@@ -338,18 +350,27 @@ public final class GovernedEntryCheckpointApplication {
         return result;
     }
 
-    private static DelegationResult invokeSubAgent(AgentRuntime runtime) {
+    static DelegationResult invokeSubAgent(AgentRuntime runtime) {
         SubAgentRunner runner = new SubAgentRunner(
                 runtime,
                 new DelegationPolicy(2, IterationBudget.maxTurns(3))
         );
-        return runner.run(new DelegationRequest(List.of(new SubAgentTask(
-                "inspect-runtime",
-                "检查 Runtime 边界",
-                "只返回证据摘要",
-                List.of("workspace"),
-                null
-        ))));
+        return runner.run(new DelegationRequest(
+                "stage04-delegation",
+                "stage04-parent-run",
+                "stage04-parent",
+                List.of(new SubAgentTask(
+                        "inspect-runtime",
+                        """
+                                已观察到：入口 Adapter 只负责协议转换，AgentRuntime 负责 Main Loop，
+                                当前子任务仅开放 workspace-read。请用一句中文总结这组边界证据，
+                                不补充未观察到的事实。
+                                """,
+                        "返回 Runtime 边界证据摘要",
+                        List.of("workspace-read"),
+                        null
+                ))
+        ));
     }
 
     private static void require(boolean condition, String message) {
@@ -366,6 +387,6 @@ public final class GovernedEntryCheckpointApplication {
         }
     }
 
-    private record AcpCheckpointResult(String answer, int sessionCount, int updateCount) {
+    record AcpCheckpointResult(String answer, int sessionCount, int updateCount) {
     }
 }

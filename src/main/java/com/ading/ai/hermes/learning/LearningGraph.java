@@ -28,9 +28,24 @@ public final class LearningGraph {
         Set<String> skillIds = new HashSet<>();
         skillSnapshot.forEach(skill -> skillIds.add(skill.id()));
         Set<LearningEdge> edges = new LinkedHashSet<>();
+        List<LearningGraphDiagnostic> diagnostics = new ArrayList<>();
         for (LearningSkill skill : skillSnapshot) {
             for (String relatedId : skill.relatedSkillIds()) {
-                if (skillIds.contains(relatedId) && !skill.id().equals(relatedId)) {
+                if (skill.id().equals(relatedId)) {
+                    diagnostics.add(new LearningGraphDiagnostic(
+                            LearningDiagnosticCode.SELF_REFERENCE,
+                            skill.id(),
+                            relatedId,
+                            skill.id() + " must not reference itself"
+                    ));
+                } else if (!skillIds.contains(relatedId)) {
+                    diagnostics.add(new LearningGraphDiagnostic(
+                            LearningDiagnosticCode.UNKNOWN_RELATED_SKILL,
+                            skill.id(),
+                            relatedId,
+                            skill.id() + " references unknown skill " + relatedId
+                    ));
+                } else {
                     edges.add(new LearningEdge(skill.id(), relatedId, LearningEdgeKind.RELATED_SKILL));
                 }
             }
@@ -48,7 +63,7 @@ public final class LearningGraph {
 
         int possibleEdges = nodes.size() < 2 ? 0 : nodes.size() * (nodes.size() - 1);
         double density = possibleEdges == 0 ? 0.0 : (double) edges.size() / possibleEdges;
-        return new LearningGraphSnapshot(nodes, List.copyOf(edges), density);
+        return new LearningGraphSnapshot(nodes, List.copyOf(edges), density, diagnostics);
     }
 
     private static void validateUniqueIds(List<LearningMemory> memories, List<LearningSkill> skills) {

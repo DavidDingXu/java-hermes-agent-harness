@@ -148,6 +148,42 @@ class ErrorRecoveringAgentLoopTest {
     }
 
     @Test
+    void countsReturnedToolExecutionFailuresAgainstTheRecoveryBudget() {
+        ToolRequest request = new ToolRequest("call-1", "read_file", Map.of("path", "README.md"));
+        ErrorRecoveringAgentLoop loop = new ErrorRecoveringAgentLoop(
+                scriptedModel(ModelTurn.toolRequest(request)),
+                toolRequest -> ToolObservation.executionFailure(toolRequest.callId(), "disk unavailable"),
+                ErrorRecoveryPolicy.maxRecoveries(0)
+        );
+
+        AgentRunResult result = loop.run(
+                AgentRunRequest.start("read README", IterationBudget.maxTurns(4))
+        );
+
+        assertEquals(FinishReason.ERROR_LIMIT, result.finishReason());
+        assertEquals(ToolFailureKind.EXECUTION_ERROR, result.state().events().get(2)
+                .toolObservation().failureKind());
+    }
+
+    @Test
+    void leavesDomainRejectionsForTheModelToCorrect() {
+        ToolRequest request = new ToolRequest("call-1", "edit_file", Map.of("path", "../outside"));
+        ErrorRecoveringAgentLoop loop = new ErrorRecoveringAgentLoop(
+                scriptedModel(ModelTurn.toolRequest(request), ModelTurn.finalAnswer("used a safe path")),
+                toolRequest -> ToolObservation.failure(toolRequest.callId(), "path rejected"),
+                ErrorRecoveryPolicy.maxRecoveries(0)
+        );
+
+        AgentRunResult result = loop.run(
+                AgentRunRequest.start("edit file", IterationBudget.maxTurns(4))
+        );
+
+        assertEquals(FinishReason.FINAL_ANSWER, result.finishReason());
+        assertEquals(ToolFailureKind.REJECTED, result.state().events().get(2)
+                .toolObservation().failureKind());
+    }
+
+    @Test
     void rejectsInvalidRecoveryPolicy() {
         try {
             ErrorRecoveryPolicy.maxRecoveries(-1);

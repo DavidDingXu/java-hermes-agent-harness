@@ -475,7 +475,7 @@ public final class SqliteSessionStore {
 
     private static String searchableText(AgentEvent event) {
         return switch (event.kind()) {
-            case USER_MESSAGE, CONTEXT_SUMMARY, ERROR_RECOVERED,
+            case USER_MESSAGE, CONTEXT_SUMMARY, ERROR_RECOVERED, COMPLETION_REJECTED,
                     RUN_INTERRUPTED, MODEL_FINAL_ANSWER -> event.text();
             case TOOL_REQUESTED -> event.toolRequest().name() + " " + event.toolRequest().arguments();
             case TOOL_OBSERVED -> event.toolObservation().callId() + " " + event.toolObservation().content();

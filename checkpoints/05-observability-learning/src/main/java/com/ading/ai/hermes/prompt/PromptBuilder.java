@@ -13,20 +13,38 @@ import java.util.Objects;
 
 public final class PromptBuilder implements ChatRequestFactory {
 
-    private final PromptPolicy policy;
+    private final PromptPlan plan;
     private final List<ToolSpec> tools;
     private final ModelOptions options;
+    private final SystemReminderPolicy reminderPolicy;
 
     public PromptBuilder(PromptPolicy policy, List<ToolSpec> tools, ModelOptions options) {
-        this.policy = Objects.requireNonNull(policy, "policy must not be null");
+        this(PromptPlan.fromPolicy(Objects.requireNonNull(policy, "policy must not be null")), tools, options);
+    }
+
+    public PromptBuilder(PromptPlan plan, List<ToolSpec> tools, ModelOptions options) {
+        this(plan, tools, options, SystemReminderPolicy.standard());
+    }
+
+    public PromptBuilder(
+            PromptPlan plan,
+            List<ToolSpec> tools,
+            ModelOptions options,
+            SystemReminderPolicy reminderPolicy
+    ) {
+        this.plan = Objects.requireNonNull(plan, "plan must not be null");
         this.tools = List.copyOf(tools);
         this.options = Objects.requireNonNull(options, "options must not be null");
+        this.reminderPolicy = Objects.requireNonNull(
+                reminderPolicy,
+                "reminderPolicy must not be null"
+        );
     }
 
     @Override
     public ChatRequest create(AgentState state) {
         List<ChatMessage> messages = new ArrayList<>();
-        messages.add(ChatMessage.system(policy.systemPrompt()));
+        messages.add(ChatMessage.system(plan.systemPrompt()));
         for (int index = 0; index < state.events().size(); index++) {
             AgentEvent event = state.events().get(index);
             if (event.kind() == com.ading.ai.hermes.core.AgentEventKind.TOOL_REQUESTED) {
@@ -43,7 +61,12 @@ public final class PromptBuilder implements ChatRequestFactory {
                 messages.add(toMessage(event));
             }
         }
-        return new ChatRequest(messages, tools, options);
+        for (SystemReminder reminder : reminderPolicy.remindersFor(state)) {
+            messages.add(ChatMessage.system(
+                    "runtime reminder [" + reminder.code() + "]\n" + reminder.text()
+            ));
+        }
+        return new ChatRequest(messages, tools, options, plan.cacheDescriptor());
     }
 
     private ChatMessage toMessage(AgentEvent event) {
@@ -51,6 +74,7 @@ public final class PromptBuilder implements ChatRequestFactory {
             case USER_MESSAGE -> ChatMessage.user(event.text());
             case CONTEXT_SUMMARY -> ChatMessage.system("context summary\n" + event.text());
             case ERROR_RECOVERED -> ChatMessage.system("error recovered\n" + event.text());
+            case COMPLETION_REJECTED -> ChatMessage.system("completion rejected\n" + event.text());
             case RUN_INTERRUPTED -> ChatMessage.system("run interrupted\n" + event.text());
             case MODEL_FINAL_ANSWER -> ChatMessage.assistant(event.text());
             case TOOL_REQUESTED -> throw new IllegalStateException("tool requests must be grouped");

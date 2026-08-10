@@ -3,13 +3,15 @@ package com.ading.ai.hermes.runtime;
 import com.ading.ai.hermes.core.AgentRunRequest;
 import com.ading.ai.hermes.core.AgentRunResult;
 import com.ading.ai.hermes.core.AgentRuntime;
+import com.ading.ai.hermes.core.CancellableAgentRuntime;
+import com.ading.ai.hermes.core.StopSignal;
 import com.ading.ai.hermes.harness.AgentHarness;
 import com.ading.ai.hermes.harness.HarnessRunRequest;
 import com.ading.ai.hermes.harness.HarnessRunResult;
 import java.util.List;
 import java.util.Objects;
 
-public final class HarnessAgentRuntime implements AgentRuntime {
+public final class HarnessAgentRuntime implements CancellableAgentRuntime {
 
     private final AgentHarness harness;
 
@@ -19,7 +21,12 @@ public final class HarnessAgentRuntime implements AgentRuntime {
 
     @Override
     public AgentRunResult run(AgentRunRequest request) {
-        HarnessRunResult result = harness.run(new HarnessRunRequest(request, List.of()));
+        return run(request, StopSignal.none());
+    }
+
+    @Override
+    public AgentRunResult run(AgentRunRequest request, StopSignal stopSignal) {
+        HarnessRunResult result = harness.run(new HarnessRunRequest(request, List.of()), stopSignal);
         if (result.agentResult().isPresent()) {
             return result.agentResult().orElseThrow();
         }

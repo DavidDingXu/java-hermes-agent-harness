@@ -153,7 +153,8 @@ final class ReaderModelRuntime {
             flushToolRequests(messages, pendingToolRequests);
             switch (event.kind()) {
                 case USER_MESSAGE -> messages.add(ChatMessage.user(event.text()));
-                case CONTEXT_SUMMARY, ERROR_RECOVERED -> messages.add(ChatMessage.system(event.text()));
+                case CONTEXT_SUMMARY, ERROR_RECOVERED, COMPLETION_REJECTED ->
+                        messages.add(ChatMessage.system(event.text()));
                 case MODEL_FINAL_ANSWER -> messages.add(ChatMessage.assistant(event.text()));
                 case TOOL_OBSERVED -> messages.add(ChatMessage.toolResult(
                         event.toolObservation().callId(),

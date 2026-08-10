@@ -10,6 +10,8 @@ import com.ading.ai.hermes.core.FinishReason;
 import com.ading.ai.hermes.core.ToolObservation;
 import com.ading.ai.hermes.core.ToolRequest;
 import com.ading.ai.hermes.learning.LearningGraph;
+import com.ading.ai.hermes.learning.LearningGraphDocument;
+import com.ading.ai.hermes.learning.LearningGraphMutations;
 import com.ading.ai.hermes.learning.LearningGraphSnapshot;
 import com.ading.ai.hermes.learning.LearningMemory;
 import com.ading.ai.hermes.learning.LearningSkill;
@@ -53,6 +55,7 @@ public final class StateCheckpointApplication {
             require(memories.entries(MemoryTarget.MEMORY).size() == 1, "Memory 没有跨实例恢复");
             require(new SkillResolver(List.of(skill)).resolve("请检查 maven 测试").size() == 1, "Skill 没有按需匹配");
             require(graph.edges().size() == 1, "Learning Graph 没有连接 Memory 与 Skill");
+            requireMutationGuard();
 
             String systemPrompt = """
                     你正在验证 Hermes 的状态层。下面的信息已通过 Memory 与 Skill 边界进入当前轮：
@@ -86,6 +89,7 @@ public final class StateCheckpointApplication {
             System.out.println("持久化 Memory: " + memories.entries(MemoryTarget.MEMORY));
             System.out.println("按需匹配 Skill: " + skill.name());
             System.out.println("Learning Graph 边数: " + graph.edges().size());
+            System.out.println("Learning Graph 写入保护: 悬空关系已拒绝");
             System.out.println("真实模型: " + readerModel.model());
             System.out.println("在线状态注入回答: " + ReaderModelRuntime.preview(liveResult.finalAnswer()));
         } finally {
@@ -155,6 +159,25 @@ public final class StateCheckpointApplication {
                         List.of()
                 ))
         );
+    }
+
+    private static void requireMutationGuard() {
+        LearningSkill testing = new LearningSkill(
+                "skill-testing", "java-testing", "run focused tests", List.of()
+        );
+        LearningSkill debugging = new LearningSkill(
+                "skill-debugging", "debugging", "inspect test failures", List.of(testing.id())
+        );
+        LearningGraphDocument document = new LearningGraphDocument(
+                List.of(), List.of(testing, debugging)
+        );
+        try {
+            LearningGraphMutations.deleteSkill(document, testing.id());
+        } catch (IllegalArgumentException expected) {
+            require(document.skills().size() == 2, "被拒绝的写入修改了原图");
+            return;
+        }
+        throw new IllegalStateException("Learning Graph 接受了悬空关系");
     }
 
     private static void deleteRecursively(Path root) throws Exception {

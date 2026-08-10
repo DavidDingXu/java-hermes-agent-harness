@@ -248,7 +248,7 @@ public final class HermesWebServer implements AutoCloseable {
                 request.userMemory,
                 hasText(request.skillsDirectory) ? Path.of(request.skillsDirectory) : null,
                 request.skillsEnabled == null || request.skillsEnabled,
-                request.fileEditingEnabled == null || request.fileEditingEnabled,
+                request.fileEditingEnabled != null && request.fileEditingEnabled,
                 hasText(request.profile) ? request.profile : "default"
         );
         HermesRuntimeAssembly assembly = current == null

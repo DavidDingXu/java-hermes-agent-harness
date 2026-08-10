@@ -50,11 +50,15 @@ class CronSchedulerTest {
         assertEquals(1, result.runs().size());
         CronRunRecord record = result.runs().getFirst();
         assertEquals("job-1", record.jobId());
-        assertEquals("job-1@2026-06-20T10:00:00Z", record.fireKey());
+        assertEquals("job-1@2026-06-20T09:00:00Z", record.fireKey());
         assertEquals("build is green", record.finalAnswer());
         assertEquals(FinishReason.FINAL_ANSWER, record.finishReason());
-        assertEquals(Instant.parse("2026-06-20T11:00:00Z"), record.nextRunAt());
+        assertEquals(Instant.parse("2026-06-20T10:00:00Z"), record.nextRunAt());
         assertEquals("Check CI status", capturedRequest.get().userMessage());
+        assertEquals("cron", capturedRequest.get().source());
+        assertTrue(capturedRequest.get().conversationId().startsWith("cron-"));
+        assertEquals("job-1", capturedRequest.get().metadata().get(CronMetadata.JOB_ID));
+        assertEquals(record.fireKey(), capturedRequest.get().metadata().get(CronMetadata.FIRE_KEY));
         assertEquals(4, capturedRequest.get().budget().maxTurns());
         assertEquals(List.of(record), deliverySink.delivered());
     }
@@ -90,6 +94,41 @@ class CronSchedulerTest {
     }
 
     @Test
+    void doesNotRunTheSameScheduledFireAgainAtALaterTickTime() {
+        AtomicInteger runtimeCalls = new AtomicInteger();
+        CronScheduler scheduler = new CronScheduler(request -> {
+            runtimeCalls.incrementAndGet();
+            return new AgentRunResult(
+                    FinishReason.FINAL_ANSWER,
+                    "done",
+                    AgentState.start(request.userMessage()).incrementTurns()
+            );
+        }, new RecordingDeliverySink());
+        CronJob job = new CronJob(
+                "job-overdue",
+                "overdue",
+                "Run once for the scheduled fire",
+                CronSchedule.everyMinutes(30),
+                Instant.parse("2026-06-20T09:30:00Z"),
+                DeliveryTarget.local("report"),
+                false
+        );
+
+        CronTickResult first = scheduler.tick(
+                List.of(job),
+                Instant.parse("2026-06-20T10:00:00Z")
+        );
+        CronTickResult second = scheduler.tick(
+                List.of(job),
+                Instant.parse("2026-06-20T10:01:00Z")
+        );
+
+        assertEquals("job-overdue@2026-06-20T09:30:00Z", first.runs().getFirst().fireKey());
+        assertTrue(second.runs().isEmpty());
+        assertEquals(1, runtimeCalls.get());
+    }
+
+    @Test
     void skipsPausedAndFutureJobs() {
         AtomicInteger runtimeCalls = new AtomicInteger();
         CronScheduler scheduler = new CronScheduler(request -> {
@@ -120,6 +159,84 @@ class CronSchedulerTest {
 
         assertTrue(result.runs().isEmpty());
         assertEquals(0, runtimeCalls.get());
+    }
+
+    @Test
+    void recordsRuntimeFailureAndReleasesTheScheduledFireForRetry() {
+        AtomicInteger runtimeCalls = new AtomicInteger();
+        CronScheduler scheduler = new CronScheduler(request -> {
+            if (runtimeCalls.getAndIncrement() == 0) {
+                throw new IllegalStateException("provider unavailable");
+            }
+            return new AgentRunResult(
+                    FinishReason.FINAL_ANSWER,
+                    "recovered",
+                    AgentState.start(request.userMessage()).incrementTurns()
+            );
+        }, new RecordingDeliverySink());
+        CronJob job = new CronJob(
+                "job-retry",
+                "retry",
+                "Retry the same scheduled fire",
+                CronSchedule.everyMinutes(15),
+                Instant.parse("2026-06-20T10:00:00Z"),
+                DeliveryTarget.local("report"),
+                false
+        );
+
+        CronTickResult failed = scheduler.tick(
+                List.of(job),
+                Instant.parse("2026-06-20T10:01:00Z")
+        );
+        CronTickResult retried = scheduler.tick(
+                List.of(job),
+                Instant.parse("2026-06-20T10:02:00Z")
+        );
+
+        assertTrue(failed.runs().isEmpty());
+        assertEquals(CronFailureStage.RUNTIME, failed.failures().getFirst().stage());
+        assertEquals("job-retry@2026-06-20T10:00:00Z", failed.failures().getFirst().fireKey());
+        assertEquals(1, retried.runs().size());
+        assertEquals(2, runtimeCalls.get());
+    }
+
+    @Test
+    void reportsDeliveryFailureWithoutRunningTheCompletedFireAgain() {
+        AtomicInteger runtimeCalls = new AtomicInteger();
+        CronScheduler scheduler = new CronScheduler(request -> {
+            runtimeCalls.incrementAndGet();
+            return new AgentRunResult(
+                    FinishReason.FINAL_ANSWER,
+                    "completed once",
+                    AgentState.start(request.userMessage()).incrementTurns()
+            );
+        }, run -> {
+            throw new IllegalStateException("channel unavailable");
+        });
+        CronJob job = new CronJob(
+                "job-delivery",
+                "delivery",
+                "Run once and retry only delivery",
+                CronSchedule.everyMinutes(15),
+                Instant.parse("2026-06-20T10:00:00Z"),
+                DeliveryTarget.local("report"),
+                false
+        );
+
+        CronTickResult first = scheduler.tick(
+                List.of(job),
+                Instant.parse("2026-06-20T10:01:00Z")
+        );
+        CronTickResult second = scheduler.tick(
+                List.of(job),
+                Instant.parse("2026-06-20T10:02:00Z")
+        );
+
+        assertEquals(1, first.runs().size());
+        assertEquals(CronDeliveryStatus.FAILED, first.deliveries().getFirst().status());
+        assertTrue(first.deliveries().getFirst().error().contains("channel unavailable"));
+        assertTrue(second.runs().isEmpty());
+        assertEquals(1, runtimeCalls.get());
     }
 
     @Test

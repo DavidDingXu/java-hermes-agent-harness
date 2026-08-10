@@ -83,8 +83,12 @@ class ToolBatchRunnerTest {
         ));
 
         assertEquals(List.of(
-                ToolObservation.failure("call-1", "tool execution failed: boom")
+                ToolObservation.executionFailure("call-1", "tool execution failed: boom")
         ), observations);
+        assertEquals(
+                com.ading.ai.hermes.core.ToolFailureKind.EXECUTION_ERROR,
+                observations.getFirst().failureKind()
+        );
     }
 
     @Test

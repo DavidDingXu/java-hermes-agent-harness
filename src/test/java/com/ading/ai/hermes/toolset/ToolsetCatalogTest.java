@@ -29,6 +29,21 @@ class ToolsetCatalogTest {
     }
 
     @Test
+    void preservesRegistrationOrderForStablePromptsAndToolDisplays() {
+        ToolsetCatalog catalog = ToolsetCatalog.empty()
+                .register("workspace", tool("read_file", "read"))
+                .register("workspace", tool("list_directory", "list"))
+                .register("workspace", tool("edit_file", "edit"));
+
+        ToolsetSelection selection = catalog.select(Set.of("workspace"));
+
+        assertEquals(
+                List.of("read_file", "list_directory", "edit_file"),
+                selection.specs().stream().map(spec -> spec.name()).toList()
+        );
+    }
+
+    @Test
     void registersFilteredMcpToolsAsOneDynamicToolset() {
         McpToolSource source = () -> List.of(
                 descriptor("search", "search-result"),

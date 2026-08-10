@@ -13,24 +13,28 @@ fi
 mvn --batch-mode --no-transfer-progress \
   -f "$CHECKPOINT_DIR/pom.xml" \
   clean \
-  package \
-  -DskipTests
+  verify
 
-JARS=(
-  "01-main-loop/target/checkpoint-01-main-loop-1.0.0.jar"
-  "02-tools/target/checkpoint-02-tools-1.0.0.jar"
-  "03-context-session-memory/target/checkpoint-03-context-session-memory-1.0.0.jar"
-  "04-recovery-security-entry/target/checkpoint-04-recovery-security-entry-1.0.0.jar"
-  "05-observability-learning/target/checkpoint-05-observability-learning-1.0.0.jar"
-  "06-advanced-harness/target/checkpoint-06-advanced-harness-1.0.0.jar"
+ONLINE_MAINS=(
+  "01-main-loop/target/checkpoint-01-main-loop-1.0.0.jar|com.ading.ai.hermes.checkpoint.MainLoopCheckpointApplication"
+  "02-tools/target/checkpoint-02-tools-1.0.0.jar|com.ading.ai.hermes.checkpoint.ToolRuntimeCheckpointApplication"
+  "03-context-session-memory/target/checkpoint-03-context-session-memory-1.0.0.jar|com.ading.ai.hermes.checkpoint.StateCheckpointApplication"
+  "04-recovery-security-entry/target/checkpoint-04-recovery-security-entry-1.0.0.jar|com.ading.ai.hermes.checkpoint.RecoverySecurityCheckpointApplication"
+  "04-recovery-security-entry/target/checkpoint-04-recovery-security-entry-1.0.0.jar|com.ading.ai.hermes.checkpoint.ProtocolEntryCheckpointApplication"
+  "04-recovery-security-entry/target/checkpoint-04-recovery-security-entry-1.0.0.jar|com.ading.ai.hermes.checkpoint.CronCheckpointApplication"
+  "04-recovery-security-entry/target/checkpoint-04-recovery-security-entry-1.0.0.jar|com.ading.ai.hermes.checkpoint.SubAgentCheckpointApplication"
+  "04-recovery-security-entry/target/checkpoint-04-recovery-security-entry-1.0.0.jar|com.ading.ai.hermes.checkpoint.GovernedEntryCheckpointApplication"
+  "05-observability-learning/target/checkpoint-05-observability-learning-1.0.0.jar|com.ading.ai.hermes.checkpoint.ObservabilityCheckpointApplication"
+  "06-advanced-harness/target/checkpoint-06-advanced-harness-1.0.0.jar|com.ading.ai.hermes.checkpoint.AdvancedHarnessCheckpointApplication"
 )
 
-for jar in "${JARS[@]}"; do
+for entry in "${ONLINE_MAINS[@]}"; do
+  IFS='|' read -r jar _ <<< "$entry"
   test -f "$CHECKPOINT_DIR/$jar"
 done
 
 if [ "$MODE" = "--compile-only" ]; then
-  echo "all course checkpoints compiled (online Main validation not requested)"
+  echo "all course checkpoint contracts passed (online Main validation not requested)"
   exit 0
 fi
 
@@ -43,8 +47,10 @@ if [ -n "${JAVA_HOME:-}" ]; then
   fi
 fi
 
-for jar in "${JARS[@]}"; do
-  (cd "$PROJECT_DIR" && "$JAVA_BIN" -jar "$CHECKPOINT_DIR/$jar")
+for entry in "${ONLINE_MAINS[@]}"; do
+  IFS='|' read -r jar main_class <<< "$entry"
+  echo "running $main_class"
+  (cd "$PROJECT_DIR" && "$JAVA_BIN" -cp "$CHECKPOINT_DIR/$jar" "$main_class")
 done
 
-echo "all course checkpoints passed with the locally configured real model"
+echo "all 10 course Main entry points passed with the locally configured real model"

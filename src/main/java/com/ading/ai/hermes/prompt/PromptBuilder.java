@@ -16,15 +16,29 @@ public final class PromptBuilder implements ChatRequestFactory {
     private final PromptPlan plan;
     private final List<ToolSpec> tools;
     private final ModelOptions options;
+    private final SystemReminderPolicy reminderPolicy;
 
     public PromptBuilder(PromptPolicy policy, List<ToolSpec> tools, ModelOptions options) {
         this(PromptPlan.fromPolicy(Objects.requireNonNull(policy, "policy must not be null")), tools, options);
     }
 
     public PromptBuilder(PromptPlan plan, List<ToolSpec> tools, ModelOptions options) {
+        this(plan, tools, options, SystemReminderPolicy.standard());
+    }
+
+    public PromptBuilder(
+            PromptPlan plan,
+            List<ToolSpec> tools,
+            ModelOptions options,
+            SystemReminderPolicy reminderPolicy
+    ) {
         this.plan = Objects.requireNonNull(plan, "plan must not be null");
         this.tools = List.copyOf(tools);
         this.options = Objects.requireNonNull(options, "options must not be null");
+        this.reminderPolicy = Objects.requireNonNull(
+                reminderPolicy,
+                "reminderPolicy must not be null"
+        );
     }
 
     @Override
@@ -46,6 +60,11 @@ public final class PromptBuilder implements ChatRequestFactory {
             } else {
                 messages.add(toMessage(event));
             }
+        }
+        for (SystemReminder reminder : reminderPolicy.remindersFor(state)) {
+            messages.add(ChatMessage.system(
+                    "runtime reminder [" + reminder.code() + "]\n" + reminder.text()
+            ));
         }
         return new ChatRequest(messages, tools, options, plan.cacheDescriptor());
     }

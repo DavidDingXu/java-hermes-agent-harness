@@ -16,12 +16,12 @@ class WebRuntimeSettingsTest {
     Path workspace;
 
     @Test
-    void defaultsKeepSkillsInsideTheWorkspaceAndEnableReaderTools() {
+    void defaultsKeepSkillsInsideTheWorkspaceAndKeepFileEditingDisabled() {
         WebRuntimeSettings settings = WebRuntimeSettings.defaults(workspace);
 
         assertEquals(workspace.resolve(".hermes/skills").toAbsolutePath(), settings.skillsDirectory());
         assertTrue(settings.skillsEnabled());
-        assertTrue(settings.fileEditingEnabled());
+        assertFalse(settings.fileEditingEnabled());
         assertEquals("default", settings.profile());
         assertEquals(0, settings.loadedSkills().size());
     }

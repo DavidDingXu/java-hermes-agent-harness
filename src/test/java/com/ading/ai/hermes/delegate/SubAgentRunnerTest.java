@@ -4,12 +4,17 @@ import com.ading.ai.hermes.core.AgentRunRequest;
 import com.ading.ai.hermes.core.AgentRunResult;
 import com.ading.ai.hermes.core.AgentRuntime;
 import com.ading.ai.hermes.core.AgentState;
+import com.ading.ai.hermes.core.CancellableAgentRuntime;
 import com.ading.ai.hermes.core.FinishReason;
 import com.ading.ai.hermes.core.IterationBudget;
 import com.ading.ai.hermes.core.AgentEvent;
+import com.ading.ai.hermes.core.ManualStopSignal;
+import com.ading.ai.hermes.core.StopSignal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -68,6 +73,52 @@ class SubAgentRunnerTest {
         assertEquals("finished child task", child.summary());
         assertEquals(FinishReason.FINAL_ANSWER, child.finishReason());
         assertEquals(2, child.turnsUsed());
+    }
+
+    @Test
+    void createsAnIsolatedConversationAndPassesToolsetsAsRuntimePolicy() {
+        List<AgentRunRequest> captured = new ArrayList<>();
+        AtomicReference<StopSignal> capturedStop = new AtomicReference<>();
+        CancellableAgentRuntime runtime = (request, stopSignal) -> {
+            captured.add(request);
+            capturedStop.set(stopSignal);
+            return new AgentRunResult(
+                    FinishReason.FINAL_ANSWER,
+                    "done",
+                    AgentState.start(request.userMessage()).incrementTurns()
+            );
+        };
+        SubAgentRunner runner = new SubAgentRunner(
+                runtime,
+                new DelegationPolicy(2, IterationBudget.maxTurns(4))
+        );
+        ManualStopSignal parentStop = new ManualStopSignal();
+        DelegationRequest request = new DelegationRequest(
+                "delegation-7",
+                "parent-run-3",
+                "parent-conversation",
+                List.of(
+                        new SubAgentTask(
+                                "task-1", "inspect code", "", List.of("workspace-read"), null
+                        ),
+                        new SubAgentTask(
+                                "task-2", "summarize code", "", List.of("workspace-read"), null
+                        )
+                )
+        );
+
+        DelegationResult result = runner.run(request, parentStop);
+
+        assertEquals("subagent", captured.getFirst().source());
+        assertEquals(
+                "parent-conversation.subagent.delegation-7.task-1",
+                captured.getFirst().conversationId()
+        );
+        assertEquals("parent-run-3", captured.getFirst().metadata().get(SubAgentMetadata.PARENT_RUN_ID));
+        assertEquals("workspace-read", captured.getFirst().metadata().get(SubAgentMetadata.TOOLSETS));
+        assertEquals(parentStop, capturedStop.get());
+        assertEquals(captured.getFirst().conversationId(), result.results().getFirst().conversationId());
+        assertEquals(2, captured.stream().map(AgentRunRequest::conversationId).distinct().count());
     }
 
     @Test

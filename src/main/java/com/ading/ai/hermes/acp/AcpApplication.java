@@ -18,15 +18,22 @@ public final class AcpApplication {
     public static void main(String[] args) {
         try {
             Path launchDirectory = Path.of("").toAbsolutePath().normalize();
-            var loaded = LocalApplicationConfiguration.loadResolved(
-                    launchDirectory,
-                    System.getenv()
-            );
+            AcpLaunchOptions options = AcpLaunchOptions.parse(args, launchDirectory);
+            var loaded = options.explicitConfiguration()
+                    ? LocalApplicationConfiguration.loadResolved(
+                            launchDirectory,
+                            options.configurationFile(),
+                            System.getenv()
+                    )
+                    : LocalApplicationConfiguration.loadResolved(
+                            launchDirectory,
+                            System.getenv()
+                    );
             loaded.notices().forEach(System.err::println);
             Map<String, String> config = loaded.values();
-            String baseUrl = required(config, "OPENAI_BASE_URL");
-            String apiKey = required(config, "OPENAI_API_KEY");
-            String model = required(config, "OPENAI_MODEL");
+            String baseUrl = required(config, "OPENAI_BASE_URL", options.configurationFile());
+            String apiKey = required(config, "OPENAI_API_KEY", options.configurationFile());
+            String model = required(config, "OPENAI_MODEL", options.configurationFile());
             Path workspace = resolveWorkspace(launchDirectory, config.get("HERMES_WORKSPACE"));
             var assembly = HermesRuntimeFactory.create(
                     workspace,
@@ -44,11 +51,11 @@ public final class AcpApplication {
         }
     }
 
-    private static String required(Map<String, String> config, String key) {
+    private static String required(Map<String, String> config, String key, Path configurationFile) {
         String value = config.get(key);
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(
-                    key + " 未配置；请先填写 config/hermes.local.properties"
+                    key + " 未配置；请填写 " + configurationFile
             );
         }
         return value.trim();

@@ -101,7 +101,7 @@ public final class HermesWebApplication {
                         "",
                         null,
                         true,
-                        true,
+                        false,
                         profile
                 )
         );

@@ -54,6 +54,17 @@ if (!files.js.includes("workspaceLabel")) {
   throw new Error("workspace path must use a reader-safe display label");
 }
 
+const compactLayout = files.css.slice(files.css.indexOf("@media (max-width: 620px)"));
+for (const mobileNavigationRule of [
+  "grid-template-columns: repeat(3, minmax(0, 1fr));",
+  "overflow: visible;",
+  "white-space: normal;",
+]) {
+  if (!compactLayout.includes(mobileNavigationRule)) {
+    throw new Error(`mobile navigation must remain fully visible: ${mobileNavigationRule}`);
+  }
+}
+
 for (const forbidden of ["localStorage", "sessionStorage", "document.cookie", "runtimeSnapshot"]) {
   if (files.js.includes(forbidden) || files.html.includes(forbidden)) {
     throw new Error(`console contains forbidden client-side state: ${forbidden}`);

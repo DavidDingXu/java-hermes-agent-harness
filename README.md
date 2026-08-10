@@ -34,11 +34,16 @@ The agent that grows with you. 跟你一起成长的智能体。
 | 第 06 篇 | `checkpoints/01-main-loop` | `MainLoopCheckpointApplication.main()` |
 | 第 10 篇 | `checkpoints/02-tools` | `ToolRuntimeCheckpointApplication.main()` |
 | 第 17 篇 | `checkpoints/03-context-session-memory` | `StateCheckpointApplication.main()` |
-| 第 26 篇 | `checkpoints/04-recovery-security-entry` | `GovernedEntryCheckpointApplication.main()` |
+| 第 20 篇 | `checkpoints/04-recovery-security-entry` | `RecoverySecurityCheckpointApplication.main()` |
+| 第 24 篇 | `checkpoints/04-recovery-security-entry` | `ProtocolEntryCheckpointApplication.main()` |
+| 第 25 篇 | `checkpoints/04-recovery-security-entry` | `CronCheckpointApplication.main()` |
+| 第 26 篇 | `checkpoints/04-recovery-security-entry` | `SubAgentCheckpointApplication.main()`、`GovernedEntryCheckpointApplication.main()` |
 | 第 31 篇 | `checkpoints/05-observability-learning` | `ObservabilityCheckpointApplication.main()` |
 | 第 37 篇 | `checkpoints/06-advanced-harness` | `AdvancedHarnessCheckpointApplication.main()` |
 
-六份 Main 都读取项目根目录下已忽略的 `config/hermes.local.properties`，调用真实 OpenAI-compatible 模型，再检查当前阶段的结构化事实。模型调用失败、工具没有执行或磁盘结果不正确时，程序会直接失败。详细说明见 [`checkpoints/README.md`](checkpoints/README.md)。
+所有阶段 Main 都读取项目根目录下已忽略的 `config/hermes.local.properties`，调用真实 OpenAI-compatible 模型，再检查当前阶段的结构化事实。模型调用失败、工具没有执行或磁盘结果不正确时，程序会直接失败。详细说明见 [`checkpoints/README.md`](checkpoints/README.md)。
+
+每个快照目录都有一份短 README，只列当前阶段最值得先读的文件、Main 入口和成功标准。建议先按这份路线阅读，不要从包目录第一行开始逐类翻看。
 
 完成第 38 篇后，再回到根项目运行 `JavaHermesApplication.main()`、`HermesWebApplication.main()`，或由 Agent Client 启动 `AcpApplication.main()`，验证最终装配。
 
@@ -54,11 +59,16 @@ CLI、HTTP Gateway、Cron、ACP 与 Local Service 都属于入口或装配层，
 
 ## 已实现模块
 
+下面是发布核对时使用的完整类索引。第一次阅读不需要逐项展开，先按阶段 README 的 5～6 个核心文件学习即可。
+
+<details>
+<summary>展开完整模块索引</summary>
+
 - `com.ading.ai.hermes.RuntimeIdentity`：项目身份。
 - `com.ading.ai.hermes.runtime.RuntimeBoundaryMap`：Hermes 风格 Runtime 的七条核心边界。
 - `com.ading.ai.hermes.core.AgentLoop`：受预算约束的最小 Agent Main Loop。
-- `com.ading.ai.hermes.core.ErrorRecoveringAgentLoop`：把模型异常写成恢复事件，把工具异常写成失败 Observation，并在恢复预算耗尽时停止。
-- `com.ading.ai.hermes.core.InterruptibleAgentLoop`：读取停止信号，在安全边界写入中断事件并返回 `INTERRUPTED`。
+- `com.ading.ai.hermes.core.ErrorRecoveringAgentLoop`：统一处理停止信号、模型异常、工具系统异常和恢复预算；业务拒绝仍交给模型修正。
+- `com.ading.ai.hermes.core.InterruptibleAgentLoop`：兼容旧入口的轻量委托器，实际执行统一交给 `ErrorRecoveringAgentLoop`。
 - `com.ading.ai.hermes.core.TurnState`：一轮任务的事件、模型轮次、pending tool calls 和结束原因。
 - `com.ading.ai.hermes.prompt.PromptBuilder`：把系统规则、运行事件、工具规格和模型参数组装成 `ChatRequest`。
 - `com.ading.ai.hermes.prompt.PromptPlan`：按 STABLE、CONTEXT、VOLATILE 固定 Section 顺序，并生成稳定前缀指纹；默认兼容 Provider 不发送厂商私有缓存字段。
@@ -83,7 +93,8 @@ CLI、HTTP Gateway、Cron、ACP 与 Local Service 都属于入口或装配层，
 - `com.ading.ai.hermes.skill.TrajectorySelfImprovementReviewer`：从 `TrajectoryRecord` 中提取 Memory 候选和 Skill Candidate，只有恢复后的失败才进入技能候选生成。
 - `com.ading.ai.hermes.skill.SelfImprovementLoop`：把 Memory 候选交给 `MemoryStore`，把 Skill Candidate 交给 `SkillApprovalFlow` 的 pending 队列。
 - `com.ading.ai.hermes.skill.ReviewToolPolicy`：表达复盘阶段只允许 memory / skills 工具的白名单边界。
-- `com.ading.ai.hermes.learning.LearningGraph`：保存 Memory、Skill、显式 Skill 关系与可解释关联边，并返回不可变快照。
+- `com.ading.ai.hermes.learning.LearningGraph`：构建 Memory、Skill 与可解释关系的不可变快照，同时报告悬空引用和自引用。
+- `com.ading.ai.hermes.learning.LearningGraphMutations`：在不可变副本上执行写入，关系诊断不为空时原子拒绝整次修改。
 - `com.ading.ai.hermes.core.AgentRuntime`：入口层、调度器和后续控制台共同依赖的运行时调用契约。
 - `com.ading.ai.hermes.cli.JavaHermesCli`：解析 prompt 与最大轮次，调用 `AgentRuntime`，用稳定退出码表达成功、运行失败与配置错误。
 - `com.ading.ai.hermes.cli.JavaHermesApplication`：加载本地配置或交互输入，注册工作区工具并组装可执行 CLI。
@@ -96,11 +107,11 @@ CLI、HTTP Gateway、Cron、ACP 与 Local Service 都属于入口或装配层，
 - `com.ading.ai.hermes.acp.AcpApplication`：从本地私有配置装配 Runtime，并通过标准输入输出等待 Agent Client 连接。
 - `com.ading.ai.hermes.gateway.local.LocalServiceRegistry`：按稳定名称注册类型化本地服务，拒绝重复服务名和错误请求类型。
 - `com.ading.ai.hermes.gateway.local.FeishuLocalService`：把 `FeishuEventHandler` 注册为 `feishu.events`，服务容器不复制 Runtime 逻辑。
-- `com.ading.ai.hermes.scheduler.CronScheduler`：在 tick 时检查全局新工作策略、选择到期任务、claim fire key、调用同一个 `AgentRuntime`，并把 `CronRunRecord` 交给投递接口。
+- `com.ading.ai.hermes.scheduler.CronScheduler`：以计划时间生成稳定 fire key；运行失败释放 claim，运行成功后独立记录投递成功或失败，并支持只重投结果。
 - `com.ading.ai.hermes.control.FileEmergencyStop`：用原子更新的工作区哨兵暂停 HTTP、飞书与 Cron 新工作；损坏哨兵按失败关闭处理，不终止已经运行的任务。
 - `com.ading.ai.hermes.scheduler.CronJob`：描述定时任务的 id、name、prompt、schedule、nextRunAt、deliveryTarget 和暂停状态。
 - `com.ading.ai.hermes.scheduler.CronRunRecord`：记录一次 Cron 执行的 runId、jobId、fireKey、firedAt、nextRunAt、finalAnswer 和 finishReason。
-- `com.ading.ai.hermes.delegate.SubAgentRunner`：按结构化任务运行隔离子任务，只把 summary、状态、结束原因和预算使用合并回父级结果。
+- `com.ading.ai.hermes.delegate.SubAgentRunner`：为每个子任务创建独立会话，传入父停止信号，按 Toolset 收窄真实工具权限，只把摘要与结构化状态合并回父级；当前按顺序执行。
 - `com.ading.ai.hermes.delegate.SubAgentTask`：描述子任务 id、goal、context、toolsets 和独立预算。
 - `com.ading.ai.hermes.observability.TrajectoryRecorder`：把运行事件和子 Agent 结果转换成带 sessionId、turnId、taskId 和 parentTurnId 的轨迹事件。
 - `com.ading.ai.hermes.observability.TraceRedactor`：在轨迹落盘前脱敏 apiKey、token、password、Bearer header 和 `sk-` token。
@@ -110,7 +121,7 @@ CLI、HTTP Gateway、Cron、ACP 与 Local Service 都属于入口或装配层，
 - `com.ading.ai.hermes.model.ModelProviderDriver`：把 `ModelProvider` 接回 Main Loop 的适配器。
 - `com.ading.ai.hermes.model.ScriptedModelProvider`：只供自动化测试固定协议边界，不用于六个阶段 Main 或读者运行结果。
 - `com.ading.ai.hermes.model.OpenAiCompatibleModelProvider`：调用 OpenAI-compatible `/v1/chat/completions` 接口，解析文本、工具调用、原生 reasoning 和 usage。
-- `com.ading.ai.hermes.metrics.MeteredModelProvider`：透明记录模型 Provider、Usage、耗时与成功/失败，不改变原调用语义。
+- `com.ading.ai.hermes.metrics.MeteredModelProvider`：透明记录 Provider、Usage、耗时与结果；指标 Sink 失败时保留原模型响应或原始异常，并单独报告丢失指标。
 - `com.ading.ai.hermes.metrics.InMemoryModelMetrics`：保存模型调用指标快照，供测试和最小观测入口使用。
 - `com.ading.ai.hermes.model.ToolCallParser`：把原始 tool call 解析成请求、修复记录和错误报告。
 - `com.ading.ai.hermes.tool.ToolRegistry`：按工具名把 `ToolRequest` 分发到 Java 执行器。
@@ -148,6 +159,8 @@ CLI、HTTP Gateway、Cron、ACP 与 Local Service 都属于入口或装配层，
 - `web-console/verify-console.mjs`：检查页面结构、API 接线和禁止浏览器持久化凭证等约束。
 - `docs/runtime-boundary.md`：Runtime 边界说明。
 
+</details>
+
 ## 读者运行
 
 用 IDEA 打开当前项目，把 Project SDK 设为 JDK 21 或更高版本，然后选择 CLI 或 Web 入口。两种入口都会访问真实 OpenAI-compatible 模型，并调用同一套 `HermesRuntimeFactory`。
@@ -169,7 +182,7 @@ openai.model=支持_Tool_Call_的模型名
 # hermes.profile=default
 ```
 
-真实配置文件已加入 `.gitignore`。不要删除这条忽略规则，也不要提交包含 API Key 的文件。六个阶段 Main 必须从这份本地文件读取完整配置；根项目优先采用文件中已填写的值，环境变量只补齐缺项，CLI 最后才询问仍然缺失的字段，Web 还允许启动后在页面修改。若同名环境变量与本地值冲突，启动日志只提示被忽略的变量名，不输出凭证值。
+真实配置文件已加入 `.gitignore`。不要删除这条忽略规则，也不要提交包含 API Key 的文件。全部阶段 Main 必须从这份本地文件读取完整配置；根项目优先采用文件中已填写的值，环境变量只补齐缺项，CLI 最后才询问仍然缺失的字段，Web 还允许启动后在页面修改。若同名环境变量与本地值冲突，启动日志只提示被忽略的变量名，不输出凭证值。
 
 这里没有使用 `application.yml`：当前项目是纯 Java 应用，不会自动读取 Spring Boot 配置。用 JDK 自带的 `Properties` 可以保持启动链简单，也避免让读者误以为 Runtime 依赖 Spring。
 
@@ -194,7 +207,7 @@ openai.model=支持_Tool_Call_的模型名
 http://127.0.0.1:8080
 ```
 
-第一次打开时，在“模型配置”页填写 Base URL、API Key、支持 Tool Call 的模型名和工作区。然后进入“运行时配置”，填写附加系统规则、项目记忆、用户记忆和工作区内的 Skills 目录，并决定是否允许文件编辑。保存运行时配置会通过 `HermesRuntimeFactory` 重新装配 Runtime，清空上一条轨迹；页面列出的 Skill 来自真实 `SKILL.md`，不是预置标签。
+第一次打开时，在“模型配置”页填写 Base URL、API Key、支持 Tool Call 的模型名和工作区。然后进入“运行时配置”，填写附加系统规则、项目记忆、用户记忆和工作区内的 Skills 目录。文件编辑默认关闭，只有读者主动开启后才注册 `edit_file`。保存运行时配置会通过 `HermesRuntimeFactory` 重新装配 Runtime，清空上一条轨迹；页面列出的 Skill 来自真实 `SKILL.md`，不是预置标签。
 
 运行时配置还可以选择 Runtime Profile。不同 Profile 分别保存 Session、Memory、Skills 和 Trajectory，适合在同一工作区隔离日常编码与试验状态；Profile 不是多人权限或租户安全边界。
 
@@ -206,7 +219,9 @@ Web 服务只监听 `127.0.0.1`。API Key 只保存在 Java 进程内存中，�
 
 ### 入口三：ACP Agent
 
-在支持 ACP 的 Agent Client 中配置 Java 启动项，由客户端启动 `com.ading.ai.hermes.acp.AcpApplication.main()`。该 Main 使用同一份本地配置和 workspace，通过标准输入输出接收协议消息；它不是交互式控制台，直接在 IDEA Console 输入自然语言不会触发任务。
+在支持 ACP 的 Agent Client 中配置 Java 启动项，由客户端启动 `com.ading.ai.hermes.acp.AcpApplication.main()`。该 Main 通过标准输入输出接收协议消息；它不是交互式控制台，直接在 IDEA Console 输入自然语言不会触发任务。
+
+编辑器启动子进程时的工作目录可能不同于项目目录，因此 ACP 入口支持 `--config <绝对路径>`。Zed 配置样例见 [`config/zed-agent-settings.example.json`](config/zed-agent-settings.example.json)：替换项目绝对路径，在 IDEA 的 Maven 工具窗口执行 `package` 后，把该配置加入 Zed 的 `agent_servers`。密钥仍只写在已被 Git 忽略的 `hermes.local.properties`，不要放进编辑器设置。若图形界面进程找不到 `java`，把 `command` 改为当前 JDK 的 `bin/java` 或 `bin/java.exe` 绝对路径。
 
 当前 ACP 入口支持协议版本 1、Session 新建/加载/恢复/分叉/列表、模型配置、文本 Prompt、工具状态与取消。Session 级 MCP、额外 workspace root、非文本内容、运行中的低延迟事件推送和可恢复审批桥尚未启用，收到相应请求时会明确拒绝，不会静默忽略。
 

@@ -77,7 +77,7 @@ public record WebRuntimeSettings(
     }
 
     public static WebRuntimeSettings defaults(Path workspace) {
-        return new WebRuntimeSettings(workspace, "", "", "", null, true, true, "default");
+        return new WebRuntimeSettings(workspace, "", "", "", null, true, false, "default");
     }
 
     public List<SkillManifest> loadedSkills() {

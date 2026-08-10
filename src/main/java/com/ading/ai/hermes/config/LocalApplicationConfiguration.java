@@ -36,12 +36,39 @@ public final class LocalApplicationConfiguration {
             Path launchDirectory,
             Map<String, String> environment
     ) {
-        Objects.requireNonNull(launchDirectory, "launchDirectory must not be null");
+        Path normalizedLaunchDirectory = normalizeLaunchDirectory(launchDirectory);
+        return loadResolved(
+                normalizedLaunchDirectory.resolve(DEFAULT_FILE),
+                environment,
+                false
+        );
+    }
+
+    public static LoadedApplicationConfiguration loadResolved(
+            Path launchDirectory,
+            Path configurationFile,
+            Map<String, String> environment
+    ) {
+        Path normalizedLaunchDirectory = normalizeLaunchDirectory(launchDirectory);
+        Objects.requireNonNull(configurationFile, "configurationFile must not be null");
+        Path resolvedFile = configurationFile.isAbsolute()
+                ? configurationFile.toAbsolutePath().normalize()
+                : normalizedLaunchDirectory.resolve(configurationFile).normalize();
+        return loadResolved(resolvedFile, environment, true);
+    }
+
+    private static LoadedApplicationConfiguration loadResolved(
+            Path configurationFile,
+            Map<String, String> environment,
+            boolean requireConfigurationFile
+    ) {
         Objects.requireNonNull(environment, "environment must not be null");
         Map<String, String> values = new LinkedHashMap<>();
         Map<String, ConfigurationSource> sources = new LinkedHashMap<>();
         LinkedHashSet<String> ignoredEnvironmentOverrides = new LinkedHashSet<>();
-        Path configurationFile = launchDirectory.toAbsolutePath().normalize().resolve(DEFAULT_FILE);
+        if (requireConfigurationFile && !Files.isRegularFile(configurationFile)) {
+            throw new IllegalArgumentException("本地配置文件不存在: " + configurationFile);
+        }
         if (Files.isRegularFile(configurationFile)) {
             Properties properties = read(configurationFile);
             PROPERTY_TO_ENVIRONMENT.forEach((propertyName, environmentName) -> {
@@ -70,6 +97,13 @@ public final class LocalApplicationConfiguration {
                 : List.of("本地配置文件优先，已忽略同名环境变量："
                         + String.join("、", ignoredEnvironmentOverrides));
         return new LoadedApplicationConfiguration(values, sources, notices);
+    }
+
+    private static Path normalizeLaunchDirectory(Path launchDirectory) {
+        return Objects.requireNonNull(
+                launchDirectory,
+                "launchDirectory must not be null"
+        ).toAbsolutePath().normalize();
     }
 
     private static Properties read(Path file) {

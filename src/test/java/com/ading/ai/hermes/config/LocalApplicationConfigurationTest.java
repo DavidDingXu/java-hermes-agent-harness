@@ -86,4 +86,27 @@ class LocalApplicationConfigurationTest {
         assertFalse(text.contains("local-secret"));
         assertFalse(text.contains("environment-secret"));
     }
+
+    @Test
+    void readsAnExplicitConfigurationFileOutsideTheLaunchDirectory() throws Exception {
+        Path externalDirectory = Files.createDirectories(launchDirectory.resolve("reader-config"));
+        Path configurationFile = externalDirectory.resolve("hermes.properties");
+        Files.writeString(configurationFile, """
+                openai.base-url=https://external.example
+                openai.api-key=external-secret
+                openai.model=external-model
+                hermes.workspace=/tmp/reader-workspace
+                """);
+
+        LoadedApplicationConfiguration configuration =
+                LocalApplicationConfiguration.loadResolved(
+                        launchDirectory,
+                        configurationFile,
+                        Map.of()
+                );
+
+        assertEquals("external-model", configuration.values().get("OPENAI_MODEL"));
+        assertEquals("/tmp/reader-workspace", configuration.values().get("HERMES_WORKSPACE"));
+        assertEquals(ConfigurationSource.LOCAL_FILE, configuration.modelSource());
+    }
 }

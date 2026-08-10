@@ -96,6 +96,7 @@ public final class ContextCompactor {
             case USER_MESSAGE -> "user: " + preview(event.text());
             case CONTEXT_SUMMARY -> "context summary: " + preview(event.text());
             case ERROR_RECOVERED -> "error recovered: " + preview(event.text());
+            case COMPLETION_REJECTED -> "completion rejected: " + preview(event.text());
             case RUN_INTERRUPTED -> "run interrupted: " + preview(event.text());
             case MODEL_FINAL_ANSWER -> "model final answer: " + preview(event.text());
             case TOOL_REQUESTED -> "tool requested: "

@@ -95,6 +95,13 @@ public final class TrajectoryRecorder {
                     Map.of("text", redactor.redact(event.text())));
             case ERROR_RECOVERED -> event(TraceEventKind.ERROR_RECOVERED, sessionId, turnId, timestamp,
                     Map.of("message", redactor.redact(event.text())));
+            case COMPLETION_REJECTED -> event(
+                    TraceEventKind.COMPLETION_REJECTED,
+                    sessionId,
+                    turnId,
+                    timestamp,
+                    Map.of("reason", redactor.redact(event.text()))
+            );
             case RUN_INTERRUPTED -> event(TraceEventKind.RUN_INTERRUPTED, sessionId, turnId, timestamp,
                     Map.of("reason", redactor.redact(event.text())));
             case CONTEXT_SUMMARY -> null;

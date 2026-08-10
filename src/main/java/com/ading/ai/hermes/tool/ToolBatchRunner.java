@@ -73,7 +73,10 @@ public final class ToolBatchRunner implements ToolDriver {
         try {
             return toolDriver.execute(request);
         } catch (RuntimeException error) {
-            return ToolObservation.failure(request.callId(), "tool execution failed: " + error.getMessage());
+            return ToolObservation.executionFailure(
+                    request.callId(),
+                    "tool execution failed: " + error.getMessage()
+            );
         }
     }
 
@@ -82,9 +85,9 @@ public final class ToolBatchRunner implements ToolDriver {
             return future.get();
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
-            return ToolObservation.failure(request.callId(), "tool execution interrupted");
+            return ToolObservation.executionFailure(request.callId(), "tool execution interrupted");
         } catch (ExecutionException error) {
-            return ToolObservation.failure(request.callId(), "tool execution failed");
+            return ToolObservation.executionFailure(request.callId(), "tool execution failed");
         }
     }
 }

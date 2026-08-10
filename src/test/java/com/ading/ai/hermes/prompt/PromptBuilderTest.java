@@ -5,6 +5,7 @@ import com.ading.ai.hermes.core.AgentState;
 import com.ading.ai.hermes.core.ToolObservation;
 import com.ading.ai.hermes.core.ToolRequest;
 import com.ading.ai.hermes.model.ChatRequest;
+import com.ading.ai.hermes.model.ChatMessage;
 import com.ading.ai.hermes.model.ChatRole;
 import com.ading.ai.hermes.model.ModelOptions;
 import com.ading.ai.hermes.model.ToolSpec;
@@ -86,6 +87,53 @@ class PromptBuilderTest {
                 "tool request failed: tool request blocked: shell execution requires approval",
                 request.messages().get(2).content()
         );
+        assertEquals(ChatRole.SYSTEM, request.messages().get(3).role());
+        assertTrue(request.messages().get(3).content().contains("根据失败原因修正"));
+    }
+
+    @Test
+    void addsEvidenceReminderAfterAWorkspaceEdit() {
+        PromptBuilder builder = new PromptBuilder(
+                new PromptPolicy("Follow runtime boundaries."),
+                List.of(),
+                new ModelOptions("test-model", 0.0)
+        );
+        AgentState state = new AgentState(List.of(
+                AgentEvent.userMessage("update status"),
+                AgentEvent.toolRequested(new ToolRequest(
+                        "call-1",
+                        "edit_file",
+                        Map.of("path", "status.txt")
+                )),
+                AgentEvent.toolObserved(ToolObservation.success("call-1", "updated"))
+        ), 1);
+
+        ChatRequest request = builder.create(state);
+
+        ChatMessage reminder = request.messages().getLast();
+        assertEquals(ChatRole.SYSTEM, reminder.role());
+        assertTrue(reminder.content().contains("工作区已经发生修改"));
+        assertTrue(reminder.content().contains("不要声称项目验证已经通过"));
+    }
+
+    @Test
+    void doesNotRepeatOldRunRemindersAfterANewUserMessage() {
+        PromptBuilder builder = new PromptBuilder(
+                new PromptPolicy("Follow runtime boundaries."),
+                List.of(),
+                new ModelOptions("test-model", 0.0)
+        );
+        AgentState state = new AgentState(List.of(
+                AgentEvent.userMessage("old task"),
+                AgentEvent.toolRequested(new ToolRequest("call-1", "edit_file", Map.of())),
+                AgentEvent.toolObserved(ToolObservation.success("call-1", "updated")),
+                AgentEvent.modelFinalAnswer("done"),
+                AgentEvent.userMessage("new read-only task")
+        ), 2);
+
+        ChatRequest request = builder.create(state);
+
+        assertEquals("new read-only task", request.messages().getLast().content());
     }
 
     @Test
